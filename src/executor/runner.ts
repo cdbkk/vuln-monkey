@@ -1,4 +1,4 @@
-import type { AttackPayload, ExecutionResult } from "../types.js";
+import type { AttackPayload, ExecutionResult, ResultClassification } from "../types.js";
 
 const STACK_TRACE_PATTERNS = [
   /at .+:\d+:\d+/,
@@ -8,11 +8,36 @@ const STACK_TRACE_PATTERNS = [
   /SQL.*error|syntax.*near/i,
 ];
 
+const BLOCKED_HOST_PATTERNS = [
+  /^localhost$/i,
+  /^127\.\d+\.\d+\.\d+$/,
+  /^10\.\d+\.\d+\.\d+$/,
+  /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/,
+  /^192\.168\.\d+\.\d+$/,
+  /^169\.254\.\d+\.\d+$/,
+  /^\[?::1\]?$/,
+  /^0\.0\.0\.0$/,
+  /^metadata\.google\.internal$/i,
+];
+
+const MAX_RESPONSE_BYTES = 1024 * 1024; // 1 MB
+
+function isUrlAllowed(urlStr: string): boolean {
+  try {
+    const parsed = new URL(urlStr);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    const hostname = parsed.hostname;
+    return !BLOCKED_HOST_PATTERNS.some((p) => p.test(hostname));
+  } catch {
+    return false;
+  }
+}
+
 export function classifyResponse(
   statusCode: number,
   body: string,
   _headers: Record<string, string>
-): string {
+): ResultClassification {
   if (statusCode === 401 || statusCode === 403) {
     return "pass";
   }
@@ -48,6 +73,21 @@ export async function executePayloads(
       const payload = queue.shift();
       if (payload === undefined) break;
 
+      // SSRF protection: block internal/private URLs
+      if (!isUrlAllowed(payload.url)) {
+        const result: ExecutionResult = {
+          payload,
+          statusCode: 0,
+          responseTime: 0,
+          responseBody: `Blocked: URL not allowed (${payload.url})`,
+          responseHeaders: {},
+          classification: "pass",
+        };
+        results.push(result);
+        onResult(result);
+        continue;
+      }
+
       const start = Date.now();
       let statusCode = 0;
       let responseBody = "";
@@ -59,8 +99,9 @@ export async function executePayloads(
 
         const fetchOptions: RequestInit = {
           method: payload.method,
-          headers: payload.headers,
+          headers: payload.headers as Record<string, string>,
           signal: controller.signal,
+          redirect: "manual",
         };
 
         if (payload.body !== undefined && payload.method !== "GET") {
@@ -74,19 +115,49 @@ export async function executePayloads(
         clearTimeout(timer);
 
         statusCode = response.status;
-        responseBody = await response.text();
+
+        // Bounded response reading
+        const contentLength = response.headers.get("content-length");
+        if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_BYTES) {
+          responseBody = `[Response too large: ${contentLength} bytes]`;
+        } else {
+          const reader = response.body?.getReader();
+          if (reader) {
+            const chunks: Uint8Array[] = [];
+            let totalSize = 0;
+            let done = false;
+            while (!done) {
+              const { value, done: readerDone } = await reader.read();
+              done = readerDone;
+              if (value) {
+                totalSize += value.length;
+                if (totalSize > MAX_RESPONSE_BYTES) {
+                  responseBody = `[Response truncated at ${MAX_RESPONSE_BYTES} bytes]`;
+                  reader.cancel();
+                  break;
+                }
+                chunks.push(value);
+              }
+            }
+            if (!responseBody) {
+              responseBody = new TextDecoder().decode(
+                Buffer.concat(chunks)
+              );
+            }
+          }
+        }
 
         response.headers.forEach((value, key) => {
           responseHeaders[key] = value;
         });
-      } catch {
+      } catch (err) {
         statusCode = 0;
-        responseBody = "fetch error";
+        responseBody = err instanceof Error ? err.message : "fetch error";
         responseHeaders = {};
       }
 
       const responseTime = Date.now() - start;
-      const classification =
+      const classification: ResultClassification =
         statusCode === 0
           ? "crash"
           : classifyResponse(statusCode, responseBody, responseHeaders);
@@ -97,7 +168,7 @@ export async function executePayloads(
         responseTime,
         responseBody,
         responseHeaders,
-        classification: classification as ExecutionResult["classification"],
+        classification,
       };
 
       results.push(result);

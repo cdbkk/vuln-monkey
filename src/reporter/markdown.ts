@@ -2,13 +2,22 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Report, Finding } from "../types.js";
 
+const SENSITIVE_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-auth-token"]);
+
+function redactHeader(key: string, value: string): string {
+  if (SENSITIVE_HEADERS.has(key.toLowerCase())) {
+    return `${value.slice(0, 10)}...[REDACTED]`;
+  }
+  return value;
+}
+
 function formatFinding(finding: Finding): string {
   const bodyStr = finding.payload.body !== undefined
     ? JSON.stringify(finding.payload.body, null, 2)
     : "N/A";
 
   const headersStr = Object.entries(finding.payload.headers)
-    .map(([k, v]) => `${k}: ${v}`)
+    .map(([k, v]) => `${k}: ${redactHeader(k, v)}`)
     .join("\n") || "None";
 
   return `### ${finding.title}
@@ -43,7 +52,7 @@ ${bodyStr}
 
 Body:
 \`\`\`
-${finding.response.body}
+${finding.response.body.replace(/```/g, "\\`\\`\\`")}
 \`\`\`
 `;
 }

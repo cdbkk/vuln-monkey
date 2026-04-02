@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Command } from "commander";
 import ora from "ora";
 import { parseCurl } from "./parser/curl.js";
@@ -9,6 +10,8 @@ import { logResult, logSummary } from "./reporter/terminal.js";
 import { writeMarkdownReport } from "./reporter/markdown.js";
 import { writeJSONReport } from "./reporter/json.js";
 import type { Endpoint, Finding, Report } from "./types.js";
+
+const VALID_MODELS = new Set(["claude", "gemini"]);
 
 const program = new Command();
 
@@ -28,10 +31,21 @@ program
       program.error("Provide a curl command or --spec <url>");
     }
 
-    const startTime = Date.now();
-    const model = opts.model as "claude" | "gemini";
+    if (!VALID_MODELS.has(opts.model)) {
+      program.error(`Invalid model "${opts.model}". Must be: claude or gemini`);
+    }
+
     const concurrency = parseInt(opts.concurrency, 10);
     const timeout = parseInt(opts.timeout, 10);
+    if (isNaN(concurrency) || concurrency < 1) {
+      program.error("--concurrency must be a positive integer");
+    }
+    if (isNaN(timeout) || timeout < 1) {
+      program.error("--timeout must be a positive integer");
+    }
+
+    const startTime = Date.now();
+    const model = opts.model as "claude" | "gemini";
 
     // Step 1: Parse input into endpoints
     const parseSpinner = ora("Parsing input...").start();
@@ -43,15 +57,22 @@ program
       } else {
         endpoints = [parseCurl(curl)];
       }
+      if (endpoints.length === 0) {
+        parseSpinner.fail("No endpoints found in spec");
+        process.exitCode = 1;
+        return;
+      }
       parseSpinner.succeed(`Parsed ${endpoints.length} endpoint(s)`);
     } catch (err) {
       parseSpinner.fail(`Parse failed: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     const target = opts.spec || endpoints[0]?.url || "unknown";
     const provider = createProvider(model);
     const allPayloads: Awaited<ReturnType<typeof provider.generatePayloads>> = [];
+    let analysisFailures = 0;
 
     // Step 2-3: Analyze and generate payloads per endpoint
     for (const endpoint of endpoints) {
@@ -61,17 +82,28 @@ program
         analyzeSpinner.succeed(`Found ${vulns.length} potential vulnerabilities`);
 
         const payloadSpinner = ora("Generating attack payloads...").start();
-        const payloads = await provider.generatePayloads(endpoint, vulns);
-        payloadSpinner.succeed(`Generated ${payloads.length} payloads`);
-        allPayloads.push(...payloads);
+        try {
+          const payloads = await provider.generatePayloads(endpoint, vulns);
+          payloadSpinner.succeed(`Generated ${payloads.length} payloads`);
+          allPayloads.push(...payloads);
+        } catch (err) {
+          payloadSpinner.fail(`Payload generation failed: ${err instanceof Error ? err.message : err}`);
+          analysisFailures++;
+        }
       } catch (err) {
         analyzeSpinner.fail(`Analysis failed: ${err instanceof Error ? err.message : err}`);
+        analysisFailures++;
       }
     }
 
     if (allPayloads.length === 0) {
-      console.log("No payloads generated. Exiting.");
-      process.exit(0);
+      if (analysisFailures > 0) {
+        console.error(`All ${analysisFailures} endpoint analysis(es) failed. Check your API key.`);
+        process.exitCode = 1;
+      } else {
+        console.log("No payloads generated. Exiting.");
+      }
+      return;
     }
 
     // Step 4: Dry run exits here
@@ -80,7 +112,7 @@ program
       for (const p of allPayloads) {
         console.log(`  ${p.method} ${p.url} — ${p.name}`);
       }
-      process.exit(0);
+      return;
     }
 
     // Step 5: Execute payloads
@@ -135,12 +167,16 @@ program
     // Step 9: Output reports
     logSummary(report);
 
-    const mdPath = await writeMarkdownReport(report, opts.output);
-    const jsonPath = await writeJSONReport(report, opts.output);
-
-    console.log(`\nReports written:`);
-    console.log(`  Markdown: ${mdPath}`);
-    console.log(`  JSON:     ${jsonPath}`);
+    try {
+      const mdPath = await writeMarkdownReport(report, opts.output);
+      const jsonPath = await writeJSONReport(report, opts.output);
+      console.log(`\nReports written:`);
+      console.log(`  Markdown: ${mdPath}`);
+      console.log(`  JSON:     ${jsonPath}`);
+    } catch (err) {
+      console.error(`Failed to write reports: ${err instanceof Error ? err.message : err}`);
+      process.exitCode = 1;
+    }
   });
 
-program.parse();
+await program.parseAsync();
