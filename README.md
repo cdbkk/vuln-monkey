@@ -408,8 +408,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines.
 ---
 
 <p align="center">
-  <b>vuln-monkey</b> • <a href="https://github.com/cdbkk/vuln-monkey">GitHub</a> • <a href="https://www.npmjs.com/package/vuln-monkey">npm</a>
-  <br/>
-  <br/>
-  Built with <a href="https://claude.com">Claude</a>
+  <a href="https://github.com/cdbkk/vuln-monkey">GitHub</a> • <a href="https://www.npmjs.com/package/vuln-monkey">npm</a>
 </p>
