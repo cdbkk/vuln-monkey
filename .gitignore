@@ -3,3 +3,4 @@ dist/
 reports/
 .env
 tsx-501
+.npmrc
