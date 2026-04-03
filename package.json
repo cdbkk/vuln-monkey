@@ -1,7 +1,7 @@
 {
   "name": "vuln-monkey",
-  "version": "1.0.0",
-  "description": "",
+  "version": "0.1.0",
+  "description": "AI-powered API security fuzzer that uses LLMs to discover logic flaws in your endpoints",
   "main": "dist/cli.js",
   "type": "module",
   "files": [
@@ -16,8 +16,16 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["security", "fuzzer", "api", "vulnerability", "pentesting", "llm", "ai", "openapi"],
+  "author": "cdbkk",
+  "homepage": "https://github.com/cdbkk/vuln-monkey",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cdbkk/vuln-monkey.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cdbkk/vuln-monkey/issues"
+  },
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",

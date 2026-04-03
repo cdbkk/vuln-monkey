@@ -1,47 +1,84 @@
-# vuln-monkey
+<div align="center">
 
-AI-powered API security fuzzer that uses LLMs to discover logic flaws in your endpoints.
+<pre>
+            __                            __
+ _   ___  _/ /___       ____ ___  ____  / /_____ __  __
+| | / / / / / __ \____ / __ `__ \/ __ \/ //_/ _ \/ / / /
+| |/ / /_/ / / / /____/ / / / / / /_/ / ,< /  __/ /_/ /
+|___/\__,_/_/ /_/    /_/ /_/ /_/\____/_/|_|\___/\__, /
+                                                /____/
+</pre>
 
-## Install
+**AI-powered API security fuzzer.**
+Paste a curl command. Get a vulnerability report.
 
-```
+[![CI](https://github.com/cdbkk/vuln-monkey/actions/workflows/ci.yml/badge.svg)](https://github.com/cdbkk/vuln-monkey/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/vuln-monkey.svg)](https://www.npmjs.com/package/vuln-monkey)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+</div>
+
+---
+
+vuln-monkey takes a curl command or OpenAPI spec, sends it to an LLM (Claude or Gemini) for vulnerability analysis, generates attack payloads, fires them with controlled concurrency, classifies the responses, and outputs a risk scored report. Terminal, Markdown, and JSON.
+
+## Quick start
+
+```bash
 npm install -g vuln-monkey
 ```
 
-## Usage
+```bash
+# Fuzz a single endpoint
+vuln-monkey "curl -X POST https://api.example.com/users \
+  -H 'Authorization: Bearer tok123' \
+  -d '{\"name\":\"test\"}'"
 
-**Curl mode** — paste any curl command and vuln-monkey generates and fires attack variants:
-
-```
-vuln-monkey "curl -X POST https://api.example.com/users -H 'Authorization: Bearer tok' -d '{\"name\":\"test\"}'"
-```
-
-**OpenAPI mode** — point at a spec and it fuzzes every endpoint automatically:
-
-```
+# Fuzz an entire API from its OpenAPI spec
 vuln-monkey --spec https://api.example.com/openapi.json
-```
 
-**Dry run** — preview the generated attack plan without sending any requests:
-
-```
+# Preview attack payloads without firing them
 vuln-monkey --dry-run "curl https://api.example.com/users"
+```
+
+## How it works
+
+```
+curl / OpenAPI spec
+       |
+       v
+  Parse endpoints
+       |
+       v
+  LLM analysis -----> Identify vulnerabilities (IDOR, injection, auth bypass, ...)
+       |
+       v
+  Generate payloads -> 8-10 attack variants per vulnerability
+       |
+       v
+  Fire requests -----> Controlled concurrency, timeouts, SSRF protection
+       |
+       v
+  Classify responses -> pass / suspicious / error / crash
+       |
+       v
+  Score & report -----> 0-100 risk score, terminal + markdown + JSON output
 ```
 
 ## Options
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--spec` | OpenAPI/Swagger spec URL or file path | |
-| `--model` | LLM backend to use (`claude` or `gemini`) | `claude` |
-| `--output` | Write results to a JSON file at this path | |
-| `--concurrency` | Number of parallel requests | `5` |
-| `--timeout` | Request timeout in milliseconds | `10000` |
-| `--dry-run` | Print attack plan without sending requests | `false` |
+| `--spec <url>` | OpenAPI/Swagger spec URL | |
+| `--model <name>` | LLM backend: `claude` or `gemini` | `claude` |
+| `--output <dir>` | Report output directory | `./reports` |
+| `--concurrency <n>` | Parallel requests | `5` |
+| `--timeout <ms>` | Request timeout in milliseconds | `10000` |
+| `--dry-run` | Generate payloads without firing | `false` |
 
-## Risk Scoring
+## Risk scoring
 
-Each finding is assigned a severity and weighted score:
+Each finding gets a severity. Severities are weighted and summed, capped at 100.
 
 | Severity | Weight |
 |----------|--------|
@@ -50,14 +87,44 @@ Each finding is assigned a severity and weighted score:
 | Medium | 5 |
 | Low | 2 |
 
-The total risk score is the sum of all finding weights, capped at 100.
-
 | Score | Rating |
 |-------|--------|
-| > 70 | Fail |
-| 40 to 70 | Needs Attention |
-| < 40 | Acceptable |
+| > 70 | **Fail** |
+| 40 - 70 | **Needs Attention** |
+| < 40 | **Acceptable** |
+
+## Vulnerability categories
+
+IDOR, BOLA, injection, auth bypass, mass assignment, type juggling, rate limiting bypass, race conditions, overflow, excessive data exposure, CORS misconfiguration, information disclosure.
+
+## Safety
+
+vuln-monkey includes built-in protections:
+
+- **SSRF guard** blocks requests to localhost, private IPs, link-local, and cloud metadata endpoints
+- **Redirect control** does not follow HTTP redirects (prevents redirect-based SSRF)
+- **Response size cap** at 1 MB to prevent memory exhaustion
+- **Credential redaction** in Markdown reports (Authorization headers masked)
+- **Output path validation** blocks writes to sensitive system directories
+
+This tool is for **authorized security testing only**. Always get written permission before testing APIs you don't own.
+
+## Requirements
+
+- Node.js 20+
+- An API key for Claude (`ANTHROPIC_API_KEY`) or Gemini (`GEMINI_API_KEY`)
+
+## Development
+
+```bash
+git clone https://github.com/cdbkk/vuln-monkey.git
+cd vuln-monkey
+npm install
+npm test              # 68 tests
+npx tsc --noEmit      # type check
+npm run dev -- --help # run locally
+```
 
 ## License
 
-MIT
+[MIT](LICENSE)
