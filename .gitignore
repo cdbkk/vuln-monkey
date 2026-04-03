@@ -2,5 +2,7 @@ node_modules/
 dist/
 reports/
 .env
-tsx-501
 .npmrc
+node-compile-cache/
+tsx-*/
+*.tgz
