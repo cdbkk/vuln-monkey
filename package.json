@@ -1,6 +1,6 @@
 {
   "name": "vuln-monkey",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AI-powered API security fuzzer that uses LLMs to discover logic flaws in your endpoints",
   "main": "dist/cli.js",
   "type": "module",
@@ -8,7 +8,7 @@
     "dist"
   ],
   "bin": {
-    "vuln-monkey": "./dist/cli.js"
+    "vuln-monkey": "dist/cli.js"
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
@@ -20,12 +20,21 @@
   "engines": {
     "node": ">=20"
   },
-  "keywords": ["security", "fuzzer", "api", "vulnerability", "pentesting", "llm", "ai", "openapi"],
+  "keywords": [
+    "security",
+    "fuzzer",
+    "api",
+    "vulnerability",
+    "pentesting",
+    "llm",
+    "ai",
+    "openapi"
+  ],
   "author": "cdbkk",
   "homepage": "https://github.com/cdbkk/vuln-monkey",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cdbkk/vuln-monkey.git"
+    "url": "git+https://github.com/cdbkk/vuln-monkey.git"
   },
   "bugs": {
     "url": "https://github.com/cdbkk/vuln-monkey/issues"
