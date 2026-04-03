@@ -61,7 +61,8 @@ export async function writeMarkdownReport(report: Report, outputDir: string): Pr
   await mkdir(outputDir, { recursive: true });
 
   const timestamp = report.timestamp.replace(/:/g, "-");
-  const filename = `vuln-monkey-${timestamp}.md`;
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const filename = `vuln-monkey-${timestamp}-${suffix}.md`;
   const filePath = join(outputDir, filename);
 
   const durationSecs = (report.duration / 1000).toFixed(2);

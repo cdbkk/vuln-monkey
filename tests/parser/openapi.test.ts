@@ -28,4 +28,30 @@ describe("parseOpenAPIFromJSON", () => {
     expect((post?.bodySchema as any).properties).toHaveProperty("name");
     expect((post?.bodySchema as any).properties).toHaveProperty("email");
   });
+
+  it("throws on missing servers array", () => {
+    expect(() => parseOpenAPIFromJSON({ openapi: "3.0.0", paths: {} })).toThrow("no servers");
+  });
+
+  it("strips trailing slash from server URL", () => {
+    const endpoints = parseOpenAPIFromJSON({
+      openapi: "3.0.0",
+      servers: [{ url: "https://api.example.com/" }],
+      paths: {
+        "/test": {
+          get: { responses: { "200": { description: "ok" } } },
+        },
+      },
+    });
+    expect(endpoints[0].url).toBe("https://api.example.com/test");
+  });
+
+  it("returns empty array for spec with no paths", () => {
+    const endpoints = parseOpenAPIFromJSON({
+      openapi: "3.0.0",
+      servers: [{ url: "https://api.example.com" }],
+      paths: {},
+    });
+    expect(endpoints).toHaveLength(0);
+  });
 });

@@ -23,6 +23,14 @@ describe("calculateRiskScore", () => {
     ];
     expect(calculateRiskScore(findings)).toBe(42);
   });
+
+  it("scores medium severity as 5", () => {
+    expect(calculateRiskScore([{ severity: "medium" }])).toBe(5);
+  });
+
+  it("handles unknown severity as 0", () => {
+    expect(calculateRiskScore([{ severity: "unknown" as any }])).toBe(0);
+  });
 });
 
 describe("getRiskRating", () => {
@@ -36,5 +44,17 @@ describe("getRiskRating", () => {
 
   it("returns Acceptable below 40", () => {
     expect(getRiskRating(39)).toBe("Acceptable");
+  });
+
+  it("returns Needs Attention at exactly 70", () => {
+    expect(getRiskRating(70)).toBe("Needs Attention");
+  });
+
+  it("returns Needs Attention at exactly 40", () => {
+    expect(getRiskRating(40)).toBe("Needs Attention");
+  });
+
+  it("returns Acceptable at 0", () => {
+    expect(getRiskRating(0)).toBe("Acceptable");
   });
 });

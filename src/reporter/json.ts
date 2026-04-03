@@ -6,7 +6,8 @@ export async function writeJSONReport(report: Report, outputDir: string): Promis
   await mkdir(outputDir, { recursive: true });
 
   const timestamp = report.timestamp.replace(/:/g, "-");
-  const filename = `vuln-monkey-${timestamp}.json`;
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const filename = `vuln-monkey-${timestamp}-${suffix}.json`;
   const filePath = join(outputDir, filename);
 
   await writeFile(filePath, JSON.stringify(report, null, 2), "utf-8");

@@ -2,6 +2,7 @@ import type { Endpoint, Vulnerability, AttackPayload } from "../types.js";
 
 const VULN_TYPES = [
   "IDOR",
+  "BOLA",
   "type juggling",
   "mass assignment",
   "rate limiting bypass",
@@ -9,6 +10,9 @@ const VULN_TYPES = [
   "injection",
   "overflow",
   "race conditions",
+  "excessive data exposure",
+  "CORS misconfiguration",
+  "information disclosure",
 ];
 
 export function buildAnalysisPrompt(endpoint: Endpoint): string {
@@ -25,10 +29,10 @@ Endpoint:
   Auth type: ${authType}
   Body schema: ${bodySchema}
 
-Analyze this endpoint and identify exactly 5 vulnerabilities from this list:
+Analyze this endpoint and identify up to 5 of the most likely vulnerabilities from this list:
 ${VULN_TYPES.join(", ")}
 
-Return ONLY a JSON array (no explanation) with exactly 5 objects, each having:
+Return ONLY a JSON array (no explanation) with up to 5 objects, each having:
 - type: the vulnerability type (string)
 - description: specific description of how the vulnerability applies to this endpoint (string)
 - severity: one of "critical", "high", "medium", "low"

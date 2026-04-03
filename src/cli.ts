@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { resolve } from "node:path";
 import ora from "ora";
 import { parseCurl } from "./parser/curl.js";
 import { parseOpenAPIFromURL } from "./parser/openapi.js";
@@ -9,7 +10,8 @@ import { calculateRiskScore, getRiskRating } from "./reporter/score.js";
 import { logResult, logSummary } from "./reporter/terminal.js";
 import { writeMarkdownReport } from "./reporter/markdown.js";
 import { writeJSONReport } from "./reporter/json.js";
-import type { Endpoint, Finding, Report } from "./types.js";
+import { buildFindings } from "./reporter/findings.js";
+import type { Endpoint, Report } from "./types.js";
 
 const VALID_MODELS = new Set(["claude", "gemini"]);
 
@@ -42,6 +44,12 @@ program
     }
     if (isNaN(timeout) || timeout < 1) {
       program.error("--timeout must be a positive integer");
+    }
+
+    const outputDir = resolve(opts.output);
+    const SENSITIVE_DIRS = ["/etc", "/usr", "/bin", "/sbin", "/sys", "/proc", "/boot", "/root"];
+    if (SENSITIVE_DIRS.some((d) => outputDir === d || outputDir.startsWith(d + "/"))) {
+      program.error(`Output path "${outputDir}" targets a sensitive system directory`);
     }
 
     const startTime = Date.now();
@@ -130,22 +138,7 @@ program
     );
 
     // Step 6: Build findings from non-pass results
-    const findings: Finding[] = results
-      .filter((r) => r.classification !== "pass")
-      .map((r) => ({
-        title: `${r.classification.toUpperCase()}: ${r.payload.name}`,
-        severity: r.classification === "crash" ? "critical" as const
-          : r.classification === "error" ? "high" as const
-          : "medium" as const,
-        endpoint: r.payload.url,
-        description: r.payload.vulnerability,
-        payload: r.payload,
-        response: {
-          statusCode: r.statusCode,
-          body: r.responseBody.slice(0, 500),
-          responseTime: r.responseTime,
-        },
-      }));
+    const findings = buildFindings(results);
 
     // Step 7-8: Score and build report
     const riskScore = calculateRiskScore(findings);
@@ -168,8 +161,8 @@ program
     logSummary(report);
 
     try {
-      const mdPath = await writeMarkdownReport(report, opts.output);
-      const jsonPath = await writeJSONReport(report, opts.output);
+      const mdPath = await writeMarkdownReport(report, outputDir);
+      const jsonPath = await writeJSONReport(report, outputDir);
       console.log(`\nReports written:`);
       console.log(`  Markdown: ${mdPath}`);
       console.log(`  JSON:     ${jsonPath}`);
