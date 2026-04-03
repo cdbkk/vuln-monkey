@@ -11,7 +11,7 @@
 
 <p align="center">
   <b>Paste a curl command. Get a vulnerability report.</b><br/>
-  No API keys needed. Works with your existing Claude, Gemini, or Codex subscription.
+  8 LLM backends. Use your CLI subscriptions, API keys, or a local model like Ollama.
 </p>
 
 ---
