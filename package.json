@@ -14,7 +14,11 @@
     "dev": "tsx src/cli.ts",
     "build": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "tsc"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "keywords": ["security", "fuzzer", "api", "vulnerability", "pentesting", "llm", "ai", "openapi"],
   "author": "cdbkk",

@@ -1,33 +1,74 @@
 import type { AttackPayload, ExecutionResult, ResultClassification } from "../types.js";
+import { resolve as dnsResolve } from "node:dns/promises";
+import { isIP } from "node:net";
 
 const STACK_TRACE_PATTERNS = [
-  /at .+:\d+:\d+/,
+  /at \S+:\d+:\d+/,
   /File ".+", line \d+/,
   /\.java:\d+\)/,
   /\.go:\d+/,
-  /SQL.*error|syntax.*near/i,
-];
-
-const BLOCKED_HOST_PATTERNS = [
-  /^localhost$/i,
-  /^127\.\d+\.\d+\.\d+$/,
-  /^10\.\d+\.\d+\.\d+$/,
-  /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/,
-  /^192\.168\.\d+\.\d+$/,
-  /^169\.254\.\d+\.\d+$/,
-  /^\[?::1\]?$/,
-  /^0\.0\.0\.0$/,
-  /^metadata\.google\.internal$/i,
+  /SQL[^]*?error|syntax[^]*?near/i,
 ];
 
 const MAX_RESPONSE_BYTES = 1024 * 1024; // 1 MB
+
+const PRIVATE_RANGES = [
+  { start: 0x7F000000, end: 0x7FFFFFFF }, // 127.0.0.0/8
+  { start: 0x0A000000, end: 0x0AFFFFFF }, // 10.0.0.0/8
+  { start: 0xAC100000, end: 0xAC1FFFFF }, // 172.16.0.0/12
+  { start: 0xC0A80000, end: 0xC0A8FFFF }, // 192.168.0.0/16
+  { start: 0xA9FE0000, end: 0xA9FEFFFF }, // 169.254.0.0/16
+  { start: 0x00000000, end: 0x00000000 }, // 0.0.0.0
+];
+
+function ipToInt(ip: string): number | null {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+  let result = 0;
+  for (const part of parts) {
+    const n = parseInt(part, 10);
+    if (isNaN(n) || n < 0 || n > 255) return null;
+    result = (result << 8) | n;
+  }
+  return result >>> 0;
+}
+
+function isPrivateIP(ip: string): boolean {
+  // Handle IPv6-mapped IPv4 (::ffff:127.0.0.1)
+  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  const resolved = mapped ? mapped[1] : ip;
+
+  // Handle pure IPv6 loopback
+  if (resolved === "::1" || resolved === "[::1]") return true;
+
+  const num = ipToInt(resolved);
+  if (num === null) return false;
+
+  return PRIVATE_RANGES.some((r) => num >= r.start && num <= r.end);
+}
 
 function isUrlAllowed(urlStr: string): boolean {
   try {
     const parsed = new URL(urlStr);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-    const hostname = parsed.hostname;
-    return !BLOCKED_HOST_PATTERNS.some((p) => p.test(hostname));
+
+    const hostname = parsed.hostname.replace(/^\[|]$/g, "");
+
+    // Block known dangerous hostnames
+    if (/^localhost$/i.test(hostname)) return false;
+    if (/^metadata\.google\.internal$/i.test(hostname)) return false;
+
+    // If hostname is an IP address (any notation), validate it
+    if (isIP(hostname)) {
+      return !isPrivateIP(hostname);
+    }
+
+    // Numeric hostnames that aren't caught by isIP (decimal, hex, octal)
+    if (/^\d+$/.test(hostname) || /^0x[0-9a-f]+$/i.test(hostname) || /^0\d+/.test(hostname)) {
+      return false; // Block all numeric/hex/octal IP notations
+    }
+
+    return true;
   } catch {
     return false;
   }
@@ -44,6 +85,10 @@ export function classifyResponse(
 
   if (statusCode >= 500) {
     return "crash";
+  }
+
+  if (statusCode >= 300 && statusCode < 400) {
+    return "pass"; // Redirects handled explicitly
   }
 
   if (statusCode >= 200 && statusCode < 300) {
@@ -92,10 +137,11 @@ export async function executePayloads(
       let statusCode = 0;
       let responseBody = "";
       let responseHeaders: Record<string, string> = {};
+      let timer: ReturnType<typeof setTimeout> | undefined;
 
       try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), options.timeout);
+        timer = setTimeout(() => controller.abort(), options.timeout);
 
         const fetchOptions: RequestInit = {
           method: payload.method,
@@ -104,7 +150,7 @@ export async function executePayloads(
           redirect: "manual",
         };
 
-        if (payload.body !== undefined && payload.method !== "GET") {
+        if (payload.body != null && payload.method !== "GET") {
           fetchOptions.body =
             typeof payload.body === "string"
               ? payload.body
@@ -113,6 +159,7 @@ export async function executePayloads(
 
         const response = await fetch(payload.url, fetchOptions);
         clearTimeout(timer);
+        timer = undefined;
 
         statusCode = response.status;
 
@@ -151,15 +198,18 @@ export async function executePayloads(
           responseHeaders[key] = value;
         });
       } catch (err) {
+        if (timer) clearTimeout(timer);
         statusCode = 0;
         responseBody = err instanceof Error ? err.message : "fetch error";
         responseHeaders = {};
       }
 
       const responseTime = Date.now() - start;
+
+      // Network errors are not server crashes
       const classification: ResultClassification =
         statusCode === 0
-          ? "crash"
+          ? "error"
           : classifyResponse(statusCode, responseBody, responseHeaders);
 
       const result: ExecutionResult = {

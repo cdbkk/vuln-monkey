@@ -26,10 +26,15 @@ export class GeminiProvider implements LLMProvider {
         await new Promise((resolve) => setTimeout(resolve, GEMINI_RETRY_DELAY_MS));
       }
       try {
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Gemini request timed out after ${GEMINI_TIMEOUT_MS}ms`)), GEMINI_TIMEOUT_MS)
-        );
-        return await Promise.race([fn(), timeoutPromise]);
+        let timer: ReturnType<typeof setTimeout>;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`Gemini request timed out after ${GEMINI_TIMEOUT_MS}ms`)), GEMINI_TIMEOUT_MS);
+        });
+        try {
+          return await Promise.race([fn(), timeoutPromise]);
+        } finally {
+          clearTimeout(timer!);
+        }
       } catch (err) {
         lastError = err;
       }

@@ -67,7 +67,7 @@ export function parseCurl(command: string): Endpoint {
         const val = headerStr.slice(colonIdx + 1).trim();
         headers[key] = val;
       }
-    } else if (token === "-d" || token === "--data" || token === "--data-raw") {
+    } else if (token === "-d" || token === "--data" || token === "--data-raw" || token === "--data-binary") {
       if (i + 1 >= tokens.length) break;
       const dataStr = tokens[++i];
       try {
