@@ -20,7 +20,9 @@ Paste a curl command. Get a vulnerability report.
 
 ---
 
-vuln-monkey takes a curl command or OpenAPI spec, sends it to an LLM (Claude or Gemini) for vulnerability analysis, generates attack payloads, fires them with controlled concurrency, classifies the responses, and outputs a risk scored report. Terminal, Markdown, and JSON.
+vuln-monkey takes a curl command or OpenAPI spec, sends it to an LLM for vulnerability analysis, generates attack payloads, fires them with controlled concurrency, classifies the responses, and outputs a risk scored report. Terminal, Markdown, and JSON.
+
+Five LLM backends. Two use API keys. Three use your existing CLI subscriptions with zero config.
 
 ## Quick start
 
@@ -65,12 +67,38 @@ curl / OpenAPI spec
   Score & report -----> 0-100 risk score, terminal + markdown + JSON output
 ```
 
+## Models
+
+| Model | How it works | Config needed |
+|-------|-------------|---------------|
+| `claude-cli` | Shells out to `claude` CLI (your Claude subscription) | Just have `claude` installed |
+| `gemini-cli` | Shells out to `gemini` CLI (your Gemini subscription) | Just have `gemini` installed |
+| `codex-cli` | Shells out to `codex` CLI (your OpenAI subscription) | Just have `codex` installed |
+| `claude` | Anthropic API directly | `ANTHROPIC_API_KEY` env var |
+| `gemini` | Google Generative AI API directly | `GEMINI_API_KEY` env var |
+
+Default is `claude-cli`. No API key needed if you already have Claude Code installed.
+
+```bash
+# Use your Claude subscription (default, no config)
+vuln-monkey "curl https://api.example.com/users"
+
+# Use Gemini CLI
+vuln-monkey --model gemini-cli "curl https://api.example.com/users"
+
+# Use Codex CLI
+vuln-monkey --model codex-cli "curl https://api.example.com/users"
+
+# Use API key directly (for CI/automation)
+ANTHROPIC_API_KEY=sk-... vuln-monkey --model claude "curl https://api.example.com/users"
+```
+
 ## Options
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--spec <url>` | OpenAPI/Swagger spec URL | |
-| `--model <name>` | LLM backend: `claude` or `gemini` | `claude` |
+| `--model <name>` | LLM backend (see above) | `claude-cli` |
 | `--output <dir>` | Report output directory | `./reports` |
 | `--concurrency <n>` | Parallel requests | `5` |
 | `--timeout <ms>` | Request timeout in milliseconds | `10000` |
@@ -112,7 +140,7 @@ This tool is for **authorized security testing only**. Always get written permis
 ## Requirements
 
 - Node.js 20+
-- An API key for Claude (`ANTHROPIC_API_KEY`) or Gemini (`GEMINI_API_KEY`)
+- One of: `claude` CLI, `gemini` CLI, `codex` CLI, or an API key (`ANTHROPIC_API_KEY` / `GEMINI_API_KEY`)
 
 ## Development
 

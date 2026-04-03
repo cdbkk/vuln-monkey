@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import ora from "ora";
 import { parseCurl } from "./parser/curl.js";
 import { parseOpenAPIFromURL } from "./parser/openapi.js";
-import { createProvider } from "./analyzer/provider.js";
+import { createProvider, VALID_MODELS } from "./analyzer/provider.js";
 import { executePayloads } from "./executor/runner.js";
 import { calculateRiskScore, getRiskRating } from "./reporter/score.js";
 import { logResult, logSummary } from "./reporter/terminal.js";
@@ -13,7 +13,7 @@ import { writeJSONReport } from "./reporter/json.js";
 import { buildFindings } from "./reporter/findings.js";
 import type { Endpoint, Report } from "./types.js";
 
-const VALID_MODELS = new Set(["claude", "gemini"]);
+const MODEL_LIST = [...VALID_MODELS].join(", ");
 
 const program = new Command();
 
@@ -23,7 +23,7 @@ program
   .version("0.1.0")
   .argument("[curl]", "curl command to fuzz")
   .option("--spec <url>", "OpenAPI/Swagger spec URL")
-  .option("--model <model>", "LLM backend: claude or gemini", "claude")
+  .option("--model <model>", "LLM backend: claude, gemini, claude-cli, gemini-cli, codex-cli", "claude-cli")
   .option("--output <dir>", "Report output directory", "./reports")
   .option("--concurrency <n>", "Parallel requests", "5")
   .option("--timeout <ms>", "Request timeout", "10000")
@@ -34,7 +34,7 @@ program
     }
 
     if (!VALID_MODELS.has(opts.model)) {
-      program.error(`Invalid model "${opts.model}". Must be: claude or gemini`);
+      program.error(`Invalid model "${opts.model}". Must be one of: ${MODEL_LIST}`);
     }
 
     const concurrency = parseInt(opts.concurrency, 10);
@@ -53,7 +53,7 @@ program
     }
 
     const startTime = Date.now();
-    const model = opts.model as "claude" | "gemini";
+    const model = opts.model;
 
     // Step 1: Parse input into endpoints
     const parseSpinner = ora("Parsing input...").start();

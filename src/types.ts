@@ -91,7 +91,7 @@ export interface LLMProvider {
 
 export interface CLIOptions {
   spec?: string;
-  model: "claude" | "gemini";
+  model: string;
   output: string;
   concurrency: number;
   timeout: number;
