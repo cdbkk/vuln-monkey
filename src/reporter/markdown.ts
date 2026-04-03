@@ -1,12 +1,13 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Report, Finding } from "../types.js";
+import { generateReportFilename } from "./filename.js";
 
 const SENSITIVE_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-auth-token"]);
 
 function redactHeader(key: string, value: string): string {
   if (SENSITIVE_HEADERS.has(key.toLowerCase())) {
-    return `${value.slice(0, 10)}...[REDACTED]`;
+    return "[REDACTED]";
   }
   return value;
 }
@@ -60,9 +61,7 @@ ${finding.response.body.replace(/```/g, "\\`\\`\\`")}
 export async function writeMarkdownReport(report: Report, outputDir: string): Promise<string> {
   await mkdir(outputDir, { recursive: true });
 
-  const timestamp = report.timestamp.replace(/:/g, "-");
-  const suffix = Math.random().toString(36).slice(2, 8);
-  const filename = `vuln-monkey-${timestamp}-${suffix}.md`;
+  const filename = generateReportFilename(report.timestamp, "md");
   const filePath = join(outputDir, filename);
 
   const durationSecs = (report.duration / 1000).toFixed(2);

@@ -1,6 +1,6 @@
-import type { Finding } from "../types.js";
+import type { Finding, Severity } from "../types.js";
 
-const SEVERITY_WEIGHTS: Record<string, number> = {
+const SEVERITY_WEIGHTS: Record<Severity, number> = {
   critical: 25,
   high: 15,
   medium: 5,

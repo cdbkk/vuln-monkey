@@ -12,7 +12,12 @@ import { writeMarkdownReport } from "./reporter/markdown.js";
 import { writeJSONReport } from "./reporter/json.js";
 import { buildFindings } from "./reporter/findings.js";
 import type { Endpoint, Report } from "./types.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
 const MODEL_LIST = [...VALID_MODELS].join(", ");
 
 const program = new Command();
@@ -20,7 +25,7 @@ const program = new Command();
 program
   .name("vuln-monkey")
   .description("AI-powered API security fuzzer")
-  .version("0.1.0")
+  .version(pkg.version)
   .argument("[curl]", "curl command to fuzz")
   .option("--spec <url>", "OpenAPI/Swagger spec URL")
   .option("--model <model>", "claude-cli, gemini-cli, codex-cli, claude, gemini, openai, ollama, local", "claude-cli")

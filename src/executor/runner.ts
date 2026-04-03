@@ -77,7 +77,6 @@ function isUrlAllowed(urlStr: string): boolean {
 export function classifyResponse(
   statusCode: number,
   body: string,
-  _headers: Record<string, string>
 ): ResultClassification {
   if (statusCode === 401 || statusCode === 403) {
     return "pass";
@@ -210,7 +209,7 @@ export async function executePayloads(
       const classification: ResultClassification =
         statusCode === 0
           ? "error"
-          : classifyResponse(statusCode, responseBody, responseHeaders);
+          : classifyResponse(statusCode, responseBody);
 
       const result: ExecutionResult = {
         payload,

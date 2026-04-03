@@ -35,13 +35,13 @@ export const AttackPayloadSchema = z.object({
 });
 export type AttackPayload = z.infer<typeof AttackPayloadSchema>;
 
-export const ResultClassification = z.enum([
+export const ResultClassificationSchema = z.enum([
   "pass",
   "suspicious",
   "error",
   "crash",
 ]);
-export type ResultClassification = z.infer<typeof ResultClassification>;
+export type ResultClassification = z.infer<typeof ResultClassificationSchema>;
 
 export const ExecutionResultSchema = z.object({
   payload: AttackPayloadSchema,
@@ -49,7 +49,7 @@ export const ExecutionResultSchema = z.object({
   responseTime: z.number(),
   responseBody: z.string(),
   responseHeaders: z.record(z.string(), z.string()),
-  classification: ResultClassification,
+  classification: ResultClassificationSchema,
   finding: z.string().optional(),
 });
 export type ExecutionResult = z.infer<typeof ExecutionResultSchema>;
@@ -89,11 +89,3 @@ export interface LLMProvider {
   ): Promise<AttackPayload[]>;
 }
 
-export interface CLIOptions {
-  spec?: string;
-  model: string;
-  output: string;
-  concurrency: number;
-  timeout: number;
-  dryRun: boolean;
-}

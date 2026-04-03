@@ -3,39 +3,39 @@ import { classifyResponse, executePayloads } from "../../src/executor/runner.js"
 
 describe("classifyResponse", () => {
   it("marks 2xx with reflected payload as suspicious", () => {
-    expect(classifyResponse(200, '{"admin":true,"role":"admin"}', {})).toBe("suspicious");
+    expect(classifyResponse(200, '{"admin":true,"role":"admin"}')).toBe("suspicious");
   });
 
   it("marks 5xx as crash", () => {
-    expect(classifyResponse(500, "Internal Server Error", {})).toBe("crash");
+    expect(classifyResponse(500, "Internal Server Error")).toBe("crash");
   });
 
   it("marks 4xx with stack trace as error", () => {
-    expect(classifyResponse(400, "Error at handler.js:42:15\n    at process.js:10:3", {})).toBe("error");
+    expect(classifyResponse(400, "Error at handler.js:42:15\n    at process.js:10:3")).toBe("error");
   });
 
   it("marks clean 4xx as pass", () => {
-    expect(classifyResponse(400, '{"error":"Bad Request"}', {})).toBe("pass");
+    expect(classifyResponse(400, '{"error":"Bad Request"}')).toBe("pass");
   });
 
   it("marks 401 as pass", () => {
-    expect(classifyResponse(401, "Unauthorized", {})).toBe("pass");
+    expect(classifyResponse(401, "Unauthorized")).toBe("pass");
   });
 
   it("marks 403 as pass", () => {
-    expect(classifyResponse(403, "Forbidden", {})).toBe("pass");
+    expect(classifyResponse(403, "Forbidden")).toBe("pass");
   });
 
   it("marks 3xx as pass", () => {
-    expect(classifyResponse(301, "Moved", {})).toBe("pass");
+    expect(classifyResponse(301, "Moved")).toBe("pass");
   });
 
   it("detects Python stack trace", () => {
-    expect(classifyResponse(400, 'File "/app/main.py", line 42', {})).toBe("error");
+    expect(classifyResponse(400, 'File "/app/main.py", line 42')).toBe("error");
   });
 
   it("detects SQL error", () => {
-    expect(classifyResponse(400, "SQL syntax error near SELECT", {})).toBe("error");
+    expect(classifyResponse(400, "SQL syntax error near SELECT")).toBe("error");
   });
 });
 

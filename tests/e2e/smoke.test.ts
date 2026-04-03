@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const CWD = resolve(import.meta.dirname, "../..");
 const EXEC_OPTS = { encoding: "utf-8" as const, cwd: CWD, timeout: 15000 };
+const PKG_VERSION = JSON.parse(readFileSync(resolve(CWD, "package.json"), "utf-8")).version;
 
 describe("CLI smoke tests", () => {
   it("--help outputs expected text", () => {
@@ -15,7 +17,7 @@ describe("CLI smoke tests", () => {
 
   it("--version outputs version", () => {
     const output = execFileSync("npx", ["tsx", "src/cli.ts", "--version"], EXEC_OPTS);
-    expect(output).toContain("0.1.0");
+    expect(output).toContain(PKG_VERSION);
   });
 
   it("no args prints error and exits non-zero", () => {
