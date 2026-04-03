@@ -69,13 +69,23 @@ curl / OpenAPI spec
 
 ## Models
 
-| Model | How it works | Config needed |
-|-------|-------------|---------------|
-| `claude-cli` | Shells out to `claude` CLI (your Claude subscription) | Just have `claude` installed |
-| `gemini-cli` | Shells out to `gemini` CLI (your Gemini subscription) | Just have `gemini` installed |
-| `codex-cli` | Shells out to `codex` CLI (your OpenAI subscription) | Just have `codex` installed |
-| `claude` | Anthropic API directly | `ANTHROPIC_API_KEY` env var |
-| `gemini` | Google Generative AI API directly | `GEMINI_API_KEY` env var |
+**CLI backends** (use your existing subscriptions, zero config):
+
+| Model | What it uses |
+|-------|-------------|
+| `claude-cli` | Your Claude Code subscription |
+| `gemini-cli` | Your Gemini CLI subscription |
+| `codex-cli` | Your Codex/OpenAI subscription |
+
+**API backends** (use API keys, good for CI/automation):
+
+| Model | What it uses | Env var |
+|-------|-------------|---------|
+| `claude` | Anthropic API | `ANTHROPIC_API_KEY` |
+| `gemini` | Google Generative AI API | `GEMINI_API_KEY` |
+| `openai` | OpenAI API (GPT-4o, etc.) | `OPENAI_API_KEY` |
+| `ollama` | Ollama local models (localhost:11434) | None |
+| `local` | Any OpenAI-compatible server (LM Studio, vLLM, llama.cpp) | `OPENAI_BASE_URL` |
 
 Default is `claude-cli`. No API key needed if you already have Claude Code installed.
 
@@ -89,8 +99,14 @@ vuln-monkey --model gemini-cli "curl https://api.example.com/users"
 # Use Codex CLI
 vuln-monkey --model codex-cli "curl https://api.example.com/users"
 
-# Use API key directly (for CI/automation)
-ANTHROPIC_API_KEY=sk-... vuln-monkey --model claude "curl https://api.example.com/users"
+# Use OpenAI API directly
+OPENAI_API_KEY=sk-... vuln-monkey --model openai "curl https://api.example.com/users"
+
+# Use a local Ollama model
+vuln-monkey --model ollama "curl https://api.example.com/users"
+
+# Use any OpenAI-compatible server (LM Studio, vLLM, etc.)
+OPENAI_BASE_URL=http://localhost:1234/v1 vuln-monkey --model local "curl https://api.example.com/users"
 ```
 
 ## Options
@@ -140,7 +156,7 @@ This tool is for **authorized security testing only**. Always get written permis
 ## Requirements
 
 - Node.js 20+
-- One of: `claude` CLI, `gemini` CLI, `codex` CLI, or an API key (`ANTHROPIC_API_KEY` / `GEMINI_API_KEY`)
+- One of: `claude` CLI, `gemini` CLI, `codex` CLI, an API key, or a local LLM (Ollama, LM Studio, etc.)
 
 ## Development
 

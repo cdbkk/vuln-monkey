@@ -23,7 +23,7 @@ program
   .version("0.1.0")
   .argument("[curl]", "curl command to fuzz")
   .option("--spec <url>", "OpenAPI/Swagger spec URL")
-  .option("--model <model>", "LLM backend: claude, gemini, claude-cli, gemini-cli, codex-cli", "claude-cli")
+  .option("--model <model>", "claude-cli, gemini-cli, codex-cli, claude, gemini, openai, ollama, local", "claude-cli")
   .option("--output <dir>", "Report output directory", "./reports")
   .option("--concurrency <n>", "Parallel requests", "5")
   .option("--timeout <ms>", "Request timeout", "10000")
