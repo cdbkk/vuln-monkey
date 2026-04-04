@@ -5,6 +5,7 @@ import ora from "ora";
 import { parseCurl } from "./parser/curl.js";
 import { parseOpenAPIFromURL } from "./parser/openapi.js";
 import { createProvider, VALID_MODELS } from "./analyzer/provider.js";
+import { synthesizeFallbackPayloads } from "./analyzer/fallback.js";
 import { executePayloads } from "./executor/runner.js";
 import { calculateRiskScore, getRiskRating } from "./reporter/score.js";
 import { logResult, logSummary } from "./reporter/terminal.js";
@@ -96,8 +97,19 @@ program
 
         const payloadSpinner = ora("Generating attack payloads...").start();
         try {
-          const payloads = await provider.generatePayloads(endpoint, vulns);
-          payloadSpinner.succeed(`Generated ${payloads.length} payloads`);
+          let payloads = await provider.generatePayloads(endpoint, vulns);
+          if (payloads.length === 0) {
+            // LLM returned zero - often happens with minimal body schemas.
+            // Synthesize universal schema-independent probes so every scanned
+            // endpoint gets the common auth-bypass / mass-assignment variants.
+            const fallback = synthesizeFallbackPayloads(endpoint, vulns);
+            payloadSpinner.warn(
+              `LLM generated 0 payloads, using fallback generator: ${fallback.length} payloads`
+            );
+            payloads = fallback;
+          } else {
+            payloadSpinner.succeed(`Generated ${payloads.length} payloads`);
+          }
           allPayloads.push(...payloads);
         } catch (err) {
           payloadSpinner.fail(`Payload generation failed: ${err instanceof Error ? err.message : err}`);
