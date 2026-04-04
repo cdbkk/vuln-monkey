@@ -1,6 +1,6 @@
 {
   "name": "vuln-monkey",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "AI-powered API security fuzzer that uses LLMs to discover logic flaws in your endpoints",
   "main": "dist/cli.js",
   "type": "module",
