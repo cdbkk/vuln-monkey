@@ -22,7 +22,8 @@ export class ClaudeProvider implements LLMProvider {
       max_tokens: ANALYSIS_MAX_TOKENS,
       messages: [{ role: "user", content: buildAnalysisPrompt(endpoint) }],
     });
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const first = response.content[0];
+    const text = first?.type === "text" ? first.text : "";
     return parseVulnerabilities(text, endpoint.url);
   }
 
@@ -32,7 +33,8 @@ export class ClaudeProvider implements LLMProvider {
       max_tokens: PAYLOAD_MAX_TOKENS,
       messages: [{ role: "user", content: buildPayloadPrompt(endpoint, vulnerabilities) }],
     });
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const first = response.content[0];
+    const text = first?.type === "text" ? first.text : "";
     return parsePayloads(text);
   }
 }

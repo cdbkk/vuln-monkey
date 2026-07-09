@@ -9,6 +9,40 @@ export const VALID_MODELS = new Set([
   "claude-cli", "gemini-cli", "codex-cli",
 ]);
 
+function isLocalBaseUrl(value?: string): boolean {
+  if (!value) return false;
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host === "localhost" || host.endsWith(".localhost") || host.startsWith("127.") || host === "0.0.0.0" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+function localBaseUrl(defaultUrl: string): string {
+  const baseUrl = process.env.OPENAI_BASE_URL;
+  if (baseUrl && isLocalBaseUrl(baseUrl)) return baseUrl;
+
+  const apiBase = process.env.OPENAI_API_BASE;
+  if (apiBase && isLocalBaseUrl(apiBase)) return apiBase;
+
+  return defaultUrl;
+}
+
+function createLocalProvider(defaultUrl: string, modelName?: string): LLMProvider {
+  const previousBaseUrl = process.env.OPENAI_BASE_URL;
+  process.env.OPENAI_BASE_URL = localBaseUrl(defaultUrl);
+  try {
+    return new OpenAICompatProvider(modelName);
+  } finally {
+    if (previousBaseUrl === undefined) {
+      delete process.env.OPENAI_BASE_URL;
+    } else {
+      process.env.OPENAI_BASE_URL = previousBaseUrl;
+    }
+  }
+}
+
 export function createProvider(model: string, modelName?: string): LLMProvider {
   switch (model) {
     case "claude":
@@ -19,16 +53,10 @@ export function createProvider(model: string, modelName?: string): LLMProvider {
       return new OpenAICompatProvider(modelName);
     case "ollama":
       // Ollama serves an OpenAI-compatible API on localhost:11434
-      if (!process.env.OPENAI_BASE_URL && !process.env.OPENAI_API_BASE) {
-        process.env.OPENAI_BASE_URL = "http://localhost:11434/v1";
-      }
-      return new OpenAICompatProvider(modelName || "llama3.1");
+      return createLocalProvider("http://localhost:11434/v1", modelName || "llama3.1");
     case "local":
       // Generic local LLM (LM Studio, vLLM, llama.cpp server, etc.)
-      if (!process.env.OPENAI_BASE_URL && !process.env.OPENAI_API_BASE) {
-        process.env.OPENAI_BASE_URL = "http://localhost:1234/v1";
-      }
-      return new OpenAICompatProvider(modelName);
+      return createLocalProvider("http://localhost:1234/v1", modelName);
     case "claude-cli":
     case "gemini-cli":
     case "codex-cli":

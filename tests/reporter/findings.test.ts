@@ -34,10 +34,10 @@ describe("buildFindings", () => {
     expect(findings).toHaveLength(2);
   });
 
-  it("maps crash to critical severity", () => {
+  it("maps transient 5xx crashes to medium severity", () => {
     const results = [makeResult("crash")];
     const findings = buildFindings(results);
-    expect(findings[0].severity).toBe("critical");
+    expect(findings[0].severity).toBe("medium");
   });
 
   it("maps error to high severity", () => {
@@ -46,10 +46,16 @@ describe("buildFindings", () => {
     expect(findings[0].severity).toBe("high");
   });
 
-  it("maps suspicious to medium severity", () => {
+  it("maps successful suspicious attacks to high severity", () => {
     const results = [makeResult("suspicious")];
     const findings = buildFindings(results);
-    expect(findings[0].severity).toBe("medium");
+    expect(findings[0].severity).toBe("high");
+  });
+
+  it("maps transport errors to low severity", () => {
+    const results = [makeResult("error", { statusCode: 0 })];
+    const findings = buildFindings(results);
+    expect(findings[0].severity).toBe("low");
   });
 
   it("truncates response body to 500 chars", () => {

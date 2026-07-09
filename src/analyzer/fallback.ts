@@ -33,7 +33,7 @@ function withoutAuthHeaders(
   const result: Record<string, string> = {};
   for (const [k, v] of Object.entries(headers)) {
     const lower = k.toLowerCase();
-    if (lower === "authorization" || lower === "x-api-key" || lower === "apikey" || lower === "api-key") {
+    if (lower === "authorization" || lower === "cookie" || lower === "x-auth-token" || lower === "x-api-key" || lower === "apikey" || lower === "api-key") {
       continue;
     }
     result[k] = v;

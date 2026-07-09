@@ -4,6 +4,7 @@ import type { Report, Finding } from "../types.js";
 import { generateReportFilename } from "./filename.js";
 
 const SENSITIVE_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-auth-token"]);
+const STRUCTURAL_START_RE = /^(\s*)([#>*+\-=]|\d+[.)])/;
 
 function redactHeader(key: string, value: string): string {
   if (SENSITIVE_HEADERS.has(key.toLowerCase())) {
@@ -12,27 +13,54 @@ function redactHeader(key: string, value: string): string {
   return value;
 }
 
+function escapeMarkdownText(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/`/g, "\\`")
+    .replace(/\|/g, "\\|")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\n/g, "\\n")
+    .replace(STRUCTURAL_START_RE, "$1\\$2");
+}
+
+function markdownCodeSpan(value: string): string {
+  const text = value
+    .replace(/\r\n?/g, "\n")
+    .replace(/\n/g, "\\n")
+    .replace(/\|/g, "\\|");
+  const maxTicks = Math.max(0, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length));
+  const ticks = "`".repeat(maxTicks + 1);
+  const padding = text.startsWith("`") || text.endsWith("`") || text.startsWith(" ") || text.endsWith(" ")
+    ? " "
+    : "";
+  return `${ticks}${padding}${text}${padding}${ticks}`;
+}
+
+function escapeFence(value: string): string {
+  return value.replace(/```/g, "\\`\\`\\`");
+}
+
 function formatFinding(finding: Finding): string {
   const bodyStr = finding.payload.body !== undefined
     ? JSON.stringify(finding.payload.body, null, 2)
     : "N/A";
 
   const headersStr = Object.entries(finding.payload.headers)
-    .map(([k, v]) => `${k}: ${redactHeader(k, v)}`)
+    .map(([k, v]) => `${escapeFence(k)}: ${escapeFence(redactHeader(k, v))}`)
     .join("\n") || "None";
 
-  return `### ${finding.title}
+  return `### ${escapeMarkdownText(finding.title)}
 
 **Severity:** ${finding.severity}
 
-${finding.description}
+${escapeMarkdownText(finding.description)}
 
 **Request**
 
 | Field | Value |
 |-------|-------|
-| Method | \`${finding.payload.method}\` |
-| URL | \`${finding.payload.url}\` |
+| Method | ${markdownCodeSpan(finding.payload.method)} |
+| URL | ${markdownCodeSpan(finding.payload.url)} |
 
 Headers:
 \`\`\`
@@ -41,7 +69,7 @@ ${headersStr}
 
 Body:
 \`\`\`json
-${bodyStr}
+${escapeFence(bodyStr)}
 \`\`\`
 
 **Response**
@@ -53,7 +81,7 @@ ${bodyStr}
 
 Body:
 \`\`\`
-${finding.response.body.replace(/```/g, "\\`\\`\\`")}
+${escapeFence(finding.response.body)}
 \`\`\`
 `;
 }
@@ -70,6 +98,12 @@ export async function writeMarkdownReport(report: Report, outputDir: string): Pr
   const findingsSection = report.findings.length > 0
     ? report.findings.map(formatFinding).join("\n---\n\n")
     : "_No findings._";
+  const failedEndpoints = "endpointsFailed" in report && typeof report.endpointsFailed === "number"
+    ? report.endpointsFailed
+    : 0;
+  const failedEndpointsRow = failedEndpoints > 0
+    ? `| Endpoints Failed | ${failedEndpoints} |\n`
+    : "";
 
   const content = `# Vuln Monkey Report
 
@@ -77,7 +111,7 @@ export async function writeMarkdownReport(report: Report, outputDir: string): Pr
 
 | Field | Value |
 |-------|-------|
-| Target | ${report.target} |
+| Target | ${escapeMarkdownText(report.target)} |
 | Model | ${report.model} |
 | Date | ${date} |
 | Duration | ${durationSecs}s |
@@ -93,7 +127,7 @@ ${findingsSection}
 | Metric | Value |
 |--------|-------|
 | Endpoints Scanned | ${report.endpointsScanned} |
-| Payloads Fired | ${report.payloadsFired} |
+${failedEndpointsRow}| Payloads Fired | ${report.payloadsFired} |
 | Findings | ${report.findings.length} |
 `;
 

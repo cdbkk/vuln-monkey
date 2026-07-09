@@ -6,11 +6,29 @@ const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
+const SEND_COMPAT_API_KEY = "OPENAI_COMPAT_SEND_API_KEY";
 
 interface ChatCompletionResponse {
   choices: Array<{
     message: { content: string };
   }>;
+}
+
+function isOpenAIHost(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).hostname.toLowerCase() === "api.openai.com";
+  } catch {
+    return false;
+  }
+}
+
+function isLocalHost(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase();
+    return host === "localhost" || host.endsWith(".localhost") || host.startsWith("127.") || host === "0.0.0.0" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
 }
 
 export class OpenAICompatProvider implements LLMProvider {
@@ -24,9 +42,14 @@ export class OpenAICompatProvider implements LLMProvider {
     this.model = modelName || process.env.OPENAI_MODEL || DEFAULT_MODEL;
 
     // Local LLMs often don't need a key, so only require it for openai.com
-    if (!this.apiKey && this.baseUrl.includes("api.openai.com")) {
+    if (!this.apiKey && isOpenAIHost(this.baseUrl)) {
       throw new Error("OPENAI_API_KEY environment variable is required for OpenAI API");
     }
+  }
+
+  private shouldSendApiKey(): boolean {
+    if (!this.apiKey || isLocalHost(this.baseUrl)) return false;
+    return isOpenAIHost(this.baseUrl) || process.env[SEND_COMPAT_API_KEY] === "1";
   }
 
   private async chat(prompt: string): Promise<string> {
@@ -44,7 +67,7 @@ export class OpenAICompatProvider implements LLMProvider {
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
         };
-        if (this.apiKey) {
+        if (this.shouldSendApiKey()) {
           headers["Authorization"] = `Bearer ${this.apiKey}`;
         }
 
@@ -60,14 +83,13 @@ export class OpenAICompatProvider implements LLMProvider {
           signal: controller.signal,
         });
 
-        clearTimeout(timer);
-
         if (!response.ok) {
           const body = await response.text();
           throw new Error(`OpenAI API ${response.status}: ${body.slice(0, 200)}`);
         }
 
         const data = (await response.json()) as ChatCompletionResponse;
+        clearTimeout(timer);
         return data.choices[0]?.message?.content || "";
       } catch (err) {
         clearTimeout(timer);

@@ -11,17 +11,17 @@ interface CLIConfig {
 const CLI_CONFIGS: Record<string, CLIConfig> = {
   "claude-cli": {
     command: "claude",
-    args: (prompt) => ["-p", "--", prompt, "--output-format", "text"],
+    args: (prompt) => ["-p", "--output-format", "text", prompt],
     timeout: 120_000,
   },
   "gemini-cli": {
     command: "gemini",
-    args: (prompt) => ["-p", "--", prompt],
+    args: (prompt) => ["-p", prompt],
     timeout: 120_000,
   },
   "codex-cli": {
     command: "codex",
-    args: (prompt) => ["exec", "--", prompt, "--full-auto"],
+    args: (prompt) => ["exec", "--full-auto", prompt],
     timeout: 180_000,
   },
 };

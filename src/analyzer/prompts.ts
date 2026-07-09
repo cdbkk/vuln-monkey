@@ -1,3 +1,4 @@
+import { AttackPayloadSchema, VulnerabilitySchema } from "../types.js";
 import type { Endpoint, Vulnerability, AttackPayload } from "../types.js";
 
 const VULN_TYPES = [
@@ -15,18 +16,37 @@ const VULN_TYPES = [
   "information disclosure",
 ];
 
+function formatJson(value: unknown): string {
+  if (value === undefined) return "none";
+  return JSON.stringify(value, null, 2) ?? "none";
+}
+
+function authHeaderName(auth: Endpoint["auth"]): string {
+  if (auth.type === "bearer" || auth.type === "basic") return "Authorization";
+  if (auth.type === "apikey") return auth.headerName ?? "X-API-Key";
+  return "none";
+}
+
+function formatAuth(endpoint: Endpoint): string {
+  if (endpoint.auth.type === "none") return "none";
+  const credential = endpoint.auth.value ? "credential provided" : "no credential value provided";
+  return `${endpoint.auth.type} via ${authHeaderName(endpoint.auth)} (${credential})`;
+}
+
 export function buildAnalysisPrompt(endpoint: Endpoint): string {
-  const authType = endpoint.auth.type;
-  const bodySchema = endpoint.bodySchema
-    ? JSON.stringify(endpoint.bodySchema, null, 2)
-    : "none";
+  const auth = formatAuth(endpoint);
+  const headers = formatJson(endpoint.headers);
+  const body = formatJson(endpoint.body);
+  const bodySchema = formatJson(endpoint.bodySchema);
 
   return `You are a security expert analyzing an API endpoint for vulnerabilities.
 
 Endpoint:
   Method: ${endpoint.method}
   URL: ${endpoint.url}
-  Auth type: ${authType}
+  Auth: ${auth}
+  Headers: ${headers}
+  Body: ${body}
   Body schema: ${bodySchema}
 
 Analyze this endpoint and identify up to 5 of the most likely vulnerabilities from this list:
@@ -62,7 +82,10 @@ export function buildPayloadPrompt(
 Endpoint:
   Method: ${endpoint.method}
   URL: ${endpoint.url}
-  Auth type: ${endpoint.auth.type}
+  Auth: ${formatAuth(endpoint)}
+  Headers: ${formatJson(endpoint.headers)}
+  Body: ${formatJson(endpoint.body)}
+  Body schema: ${formatJson(endpoint.bodySchema)}
 
 Vulnerabilities found:
 ${vulnSummary}
@@ -109,48 +132,63 @@ function extractJsonArray(raw: string): unknown[] {
 }
 
 const VALID_SEVERITIES = new Set(["critical", "high", "medium", "low"]);
+const ASCII_CONTROL_CHARS = /[\x00-\x1F]/g;
+
+function cleanString(value: unknown): string {
+  return String(value ?? "").replace(ASCII_CONTROL_CHARS, "");
+}
+
+function cleanHeaders(value: unknown): Record<string, string> | null | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+
+  const headers: Record<string, string> = {};
+  for (const [key, headerValue] of Object.entries(value)) {
+    if (typeof headerValue !== "string") return null;
+    headers[key] = headerValue;
+  }
+  return headers;
+}
 
 export function parseVulnerabilities(
   raw: string,
   endpoint: string
 ): Vulnerability[] {
   const items = extractJsonArray(raw);
-  return items
-    .filter(
-      (item): item is Record<string, unknown> =>
-        typeof item === "object" && item !== null
-    )
-    .map((item) => ({
-      type: String(item["type"] ?? ""),
-      description: String(item["description"] ?? ""),
-      severity: VALID_SEVERITIES.has(String(item["severity"]))
-        ? (String(item["severity"]) as Vulnerability["severity"])
+  return items.flatMap((item) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) return [];
+
+    const severity = cleanString((item as Record<string, unknown>)["severity"]);
+    const parsed = VulnerabilitySchema.safeParse({
+      type: cleanString((item as Record<string, unknown>)["type"]),
+      description: cleanString((item as Record<string, unknown>)["description"]),
+      severity: VALID_SEVERITIES.has(severity)
+        ? (severity as Vulnerability["severity"])
         : "medium",
-      endpoint,
-    }));
+      endpoint: cleanString(endpoint),
+    });
+    return parsed.success ? [parsed.data] : [];
+  });
 }
 
 export function parsePayloads(raw: string): AttackPayload[] {
   const items = extractJsonArray(raw);
-  const VALID_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 
-  return items
-    .filter(
-      (item): item is Record<string, unknown> =>
-        typeof item === "object" && item !== null
-    )
-    .filter((item) => VALID_METHODS.has(String(item["method"])))
-    .map((item) => ({
-      name: String(item["name"] ?? ""),
-      vulnerability: String(item["vulnerability"] ?? ""),
-      method: String(item["method"]) as AttackPayload["method"],
-      url: String(item["url"] ?? ""),
-      headers:
-        typeof item["headers"] === "object" &&
-        item["headers"] !== null &&
-        !Array.isArray(item["headers"])
-          ? (item["headers"] as Record<string, string>)
-          : {},
-      body: item["body"] !== undefined ? item["body"] : undefined,
-    }));
+  return items.flatMap((item) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) return [];
+
+    const record = item as Record<string, unknown>;
+    const headers = cleanHeaders(record["headers"]);
+    if (headers === null) return [];
+
+    const parsed = AttackPayloadSchema.safeParse({
+      name: cleanString(record["name"]),
+      vulnerability: cleanString(record["vulnerability"]),
+      method: cleanString(record["method"]),
+      url: cleanString(record["url"]),
+      headers,
+      body: record["body"] !== undefined ? record["body"] : undefined,
+    });
+    return parsed.success ? [parsed.data] : [];
+  });
 }

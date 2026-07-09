@@ -1,6 +1,8 @@
-import type { AttackPayload, ExecutionResult, ResultClassification } from "../types.js";
+import type { AttackPayload, Endpoint, ExecutionResult, ResultClassification } from "../types.js";
 import { resolve as dnsResolve } from "node:dns/promises";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
+import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage, type RequestOptions } from "node:http";
+import { request as httpsRequest } from "node:https";
 
 const STACK_TRACE_PATTERNS = [
   /at \S+:\d+:\d+/,
@@ -11,67 +13,309 @@ const STACK_TRACE_PATTERNS = [
 ];
 
 const MAX_RESPONSE_BYTES = 1024 * 1024; // 1 MB
+const MAX_CONCURRENCY = 100;
+const REDACTED = "[REDACTED]";
+const SENSITIVE_REQUEST_HEADERS = new Set([
+  "authorization",
+  "cookie",
+  "x-auth-token",
+  "api-key",
+  "apikey",
+  "x-api-key",
+]);
+const SENSITIVE_RESPONSE_HEADERS = new Set(["set-cookie"]);
 
 const PRIVATE_RANGES = [
-  { start: 0x7F000000, end: 0x7FFFFFFF }, // 127.0.0.0/8
-  { start: 0x0A000000, end: 0x0AFFFFFF }, // 10.0.0.0/8
-  { start: 0xAC100000, end: 0xAC1FFFFF }, // 172.16.0.0/12
-  { start: 0xC0A80000, end: 0xC0A8FFFF }, // 192.168.0.0/16
-  { start: 0xA9FE0000, end: 0xA9FEFFFF }, // 169.254.0.0/16
-  { start: 0x00000000, end: 0x00000000 }, // 0.0.0.0
+  { address: "127.0.0.0", prefix: 8, type: "ipv4" as const },
+  { address: "10.0.0.0", prefix: 8, type: "ipv4" as const },
+  { address: "172.16.0.0", prefix: 12, type: "ipv4" as const },
+  { address: "192.168.0.0", prefix: 16, type: "ipv4" as const },
+  { address: "169.254.0.0", prefix: 16, type: "ipv4" as const },
+  { address: "0.0.0.0", prefix: 8, type: "ipv4" as const },
+  { address: "::", prefix: 128, type: "ipv6" as const },
+  { address: "::1", prefix: 128, type: "ipv6" as const },
+  { address: "fc00::", prefix: 7, type: "ipv6" as const },
+  { address: "fe80::", prefix: 10, type: "ipv6" as const },
 ];
 
-function ipToInt(ip: string): number | null {
-  const parts = ip.split(".");
-  if (parts.length !== 4) return null;
-  let result = 0;
-  for (const part of parts) {
-    const n = parseInt(part, 10);
-    if (isNaN(n) || n < 0 || n > 255) return null;
-    result = (result << 8) | n;
-  }
-  return result >>> 0;
+const PRIVATE_BLOCKS = new BlockList();
+for (const range of PRIVATE_RANGES) {
+  PRIVATE_BLOCKS.addSubnet(range.address, range.prefix, range.type);
 }
 
 function isPrivateIP(ip: string): boolean {
-  // Handle IPv6-mapped IPv4 (::ffff:127.0.0.1)
-  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-  const resolved = mapped ? mapped[1] : ip;
-
-  // Handle pure IPv6 loopback
-  if (resolved === "::1" || resolved === "[::1]") return true;
-
-  const num = ipToInt(resolved);
-  if (num === null) return false;
-
-  return PRIVATE_RANGES.some((r) => num >= r.start && num <= r.end);
+  const resolved = stripIpv6Brackets(ip);
+  const version = isIP(resolved);
+  if (!version) return false;
+  return PRIVATE_BLOCKS.check(resolved, version === 4 ? "ipv4" : "ipv6");
 }
 
-function isUrlAllowed(urlStr: string): boolean {
+function stripIpv6Brackets(hostname: string): string {
+  return hostname.replace(/^\[(.*)]$/, "$1");
+}
+
+function rawHostname(urlStr: string): string {
+  const match = urlStr.match(/^[a-z][a-z0-9+.-]*:\/\/(?:[^/?#@]*@)?(\[[^\]]+]|[^:/?#]+)/i);
+  return match ? stripIpv6Brackets(match[1]) : "";
+}
+
+function isStandardIPv4Literal(hostname: string): boolean {
+  const parts = hostname.split(".");
+  return parts.length === 4 && parts.every((part) => {
+    if (!/^(0|[1-9]\d{0,2})$/.test(part)) return false;
+    return Number(part) <= 255;
+  });
+}
+
+function isNumericIPv4Literal(hostname: string): boolean {
+  return /^(?:0x[0-9a-f]+|\d+)(?:\.(?:0x[0-9a-f]+|\d+))*$/i.test(hostname)
+    && !isStandardIPv4Literal(hostname);
+}
+
+function hasHeader(headers: Record<string, string>, name: string): boolean {
+  const lowerName = name.toLowerCase();
+  return Object.keys(headers).some((key) => key.toLowerCase() === lowerName);
+}
+
+function setHeader(headers: Record<string, string>, name: string, value: string): void {
+  const lowerName = name.toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === lowerName) delete headers[key];
+  }
+  headers[name] = value;
+}
+
+function mergeHeaders(
+  base: Record<string, string>,
+  override: Record<string, string>
+): Record<string, string> {
+  const headers = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    setHeader(headers, key, value);
+  }
+  return headers;
+}
+
+function authHeaders(auth: Endpoint["auth"]): Record<string, string> {
+  if (auth.type === "bearer" && auth.value) {
+    return { Authorization: `Bearer ${auth.value}` };
+  }
+  if (auth.type === "basic" && auth.value) {
+    return { Authorization: `Basic ${auth.value}` };
+  }
+  if (auth.type === "apikey" && auth.headerName && auth.value) {
+    return { [auth.headerName]: auth.value };
+  }
+  return {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function mergeBody(base: unknown, override: unknown): unknown {
+  if (override === undefined) return base;
+  if (isRecord(base) && isRecord(override)) return { ...base, ...override };
+  return override;
+}
+
+function preparePayload(payload: AttackPayload, endpoint?: Endpoint): AttackPayload {
+  const baseHeaders = endpoint
+    ? mergeHeaders(endpoint.headers, authHeaders(endpoint.auth))
+    : {};
+  const headers = mergeHeaders(baseHeaders, payload.headers);
+  const body = endpoint ? mergeBody(endpoint.body, payload.body) : payload.body;
+
+  if (
+    body != null
+    && payload.method !== "GET"
+    && typeof body === "object"
+    && !hasHeader(headers, "Content-Type")
+  ) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return { ...payload, headers, body };
+}
+
+type AllowedUrl = {
+  url: URL;
+  address: string;
+  family: 4 | 6;
+};
+
+async function resolveHostname(hostname: string): Promise<string[]> {
+  const results = await Promise.allSettled([
+    dnsResolve(hostname, "A"),
+    dnsResolve(hostname, "AAAA"),
+  ]);
+
+  return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+}
+
+async function isUrlAllowed(urlStr: string): Promise<AllowedUrl | null> {
   try {
     const parsed = new URL(urlStr);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
 
-    const hostname = parsed.hostname.replace(/^\[|]$/g, "");
+    const rawHost = rawHostname(urlStr);
+    if (rawHost && isNumericIPv4Literal(rawHost)) return null;
+
+    const hostname = stripIpv6Brackets(parsed.hostname);
 
     // Block known dangerous hostnames
-    if (/^localhost$/i.test(hostname)) return false;
-    if (/^metadata\.google\.internal$/i.test(hostname)) return false;
+    if (/^localhost$/i.test(hostname)) return null;
+    if (/^metadata\.google\.internal$/i.test(hostname)) return null;
 
     // If hostname is an IP address (any notation), validate it
-    if (isIP(hostname)) {
-      return !isPrivateIP(hostname);
+    const family = isIP(hostname);
+    if (family) {
+      return isPrivateIP(hostname) ? null : { url: parsed, address: hostname, family: family as 4 | 6 };
     }
 
     // Numeric hostnames that aren't caught by isIP (decimal, hex, octal)
     if (/^\d+$/.test(hostname) || /^0x[0-9a-f]+$/i.test(hostname) || /^0\d+/.test(hostname)) {
-      return false; // Block all numeric/hex/octal IP notations
+      return null; // Block all numeric/hex/octal IP notations
     }
 
-    return true;
+    const addresses = await resolveHostname(hostname);
+    if (addresses.length === 0 || addresses.some(isPrivateIP)) return null;
+
+    const address = addresses[0];
+    const resolvedFamily = isIP(address);
+    return resolvedFamily ? { url: parsed, address, family: resolvedFamily as 4 | 6 } : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function redactHeaders(
+  headers: Record<string, string>,
+  sensitiveHeaders: Set<string>
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key,
+      sensitiveHeaders.has(key.toLowerCase()) ? REDACTED : value,
+    ])
+  );
+}
+
+function redactPayload(payload: AttackPayload): AttackPayload {
+  return {
+    ...payload,
+    headers: redactHeaders(payload.headers, SENSITIVE_REQUEST_HEADERS),
+  };
+}
+
+function responseHeadersToRecord(headers: IncomingHttpHeaders): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key,
+      SENSITIVE_RESPONSE_HEADERS.has(key.toLowerCase())
+        ? REDACTED
+        : Array.isArray(value) ? value.join(", ") : String(value ?? ""),
+    ])
+  );
+}
+
+type PinnedResponse = {
+  statusCode: number;
+  responseBody: string;
+  responseHeaders: Record<string, string>;
+  tooLarge: boolean;
+};
+
+function requestPinned(
+  target: AllowedUrl,
+  payload: AttackPayload,
+  timeout: number
+): Promise<PinnedResponse> {
+  return new Promise((resolve, reject) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    let settled = false;
+
+    const finish = (err: Error | null, result?: PinnedResponse): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (err) reject(err);
+      else resolve(result!);
+    };
+
+    const headers = payload.headers as Record<string, string>;
+    const requestOptions: RequestOptions = {
+      method: payload.method,
+      headers,
+      signal: controller.signal,
+      lookup: (_hostname, _options, callback) => callback(null, target.address, target.family),
+    };
+
+    const handleResponse = (response: IncomingMessage): void => {
+      const statusCode = response.statusCode ?? 0;
+      const responseHeaders = responseHeadersToRecord(response.headers);
+      const contentLength = response.headers["content-length"];
+      const length = Array.isArray(contentLength) ? contentLength[0] : contentLength;
+
+      if (length && parseInt(length, 10) > MAX_RESPONSE_BYTES) {
+        finish(null, {
+          statusCode,
+          responseHeaders,
+          responseBody: `[Response too large: ${length} bytes]`,
+          tooLarge: true,
+        });
+        response.destroy();
+        return;
+      }
+
+      const chunks: Buffer[] = [];
+      let totalSize = 0;
+
+      response.on("data", (chunk: Buffer | string) => {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        totalSize += buffer.length;
+        if (totalSize > MAX_RESPONSE_BYTES) {
+          finish(null, {
+            statusCode,
+            responseHeaders,
+            responseBody: `[Response truncated at ${MAX_RESPONSE_BYTES} bytes]`,
+            tooLarge: true,
+          });
+          response.destroy();
+          return;
+        }
+        chunks.push(buffer);
+      });
+
+      response.on("end", () => {
+        finish(null, {
+          statusCode,
+          responseHeaders,
+          responseBody: Buffer.concat(chunks).toString(),
+          tooLarge: false,
+        });
+      });
+
+      response.on("error", finish);
+    };
+
+    const request = target.url.protocol === "https:"
+      ? httpsRequest(target.url, requestOptions, handleResponse)
+      : httpRequest(target.url, requestOptions, handleResponse);
+
+    request.on("error", finish);
+
+    if (payload.body != null && payload.method !== "GET") {
+      request.write(
+        typeof payload.body === "string"
+          ? payload.body
+          : JSON.stringify(payload.body)
+      );
+    }
+
+    request.end();
+  });
 }
 
 export function classifyResponse(
@@ -79,7 +323,7 @@ export function classifyResponse(
   body: string,
 ): ResultClassification {
   if (statusCode === 401 || statusCode === 403) {
-    return "pass";
+    return hasInfoDisclosure(body) ? "error" : "pass";
   }
 
   if (statusCode >= 500) {
@@ -94,19 +338,24 @@ export function classifyResponse(
     return "suspicious";
   }
 
-  // 4xx: check for stack trace leakage
-  for (const pattern of STACK_TRACE_PATTERNS) {
-    if (pattern.test(body)) {
-      return "error";
-    }
-  }
+  if (hasInfoDisclosure(body)) return "error";
 
   return "pass";
 }
 
+function hasInfoDisclosure(body: string): boolean {
+  return STACK_TRACE_PATTERNS.some((pattern) => pattern.test(body));
+}
+
+type ExecuteOptions = {
+  concurrency: number;
+  timeout: number;
+  endpoint?: Endpoint;
+};
+
 export async function executePayloads(
   payloads: AttackPayload[],
-  options: { concurrency: number; timeout: number },
+  options: ExecuteOptions,
   onResult: (result: ExecutionResult) => void
 ): Promise<ExecutionResult[]> {
   const queue = [...payloads];
@@ -117,13 +366,16 @@ export async function executePayloads(
       const payload = queue.shift();
       if (payload === undefined) break;
 
+      const preparedPayload = preparePayload(payload, options.endpoint);
+
       // SSRF protection: block internal/private URLs
-      if (!isUrlAllowed(payload.url)) {
+      const allowedUrl = await isUrlAllowed(preparedPayload.url);
+      if (!allowedUrl) {
         const result: ExecutionResult = {
-          payload,
+          payload: redactPayload(preparedPayload),
           statusCode: 0,
           responseTime: 0,
-          responseBody: `Blocked: URL not allowed (${payload.url})`,
+          responseBody: `Blocked: URL not allowed (${preparedPayload.url})`,
           responseHeaders: {},
           classification: "pass",
         };
@@ -136,68 +388,15 @@ export async function executePayloads(
       let statusCode = 0;
       let responseBody = "";
       let responseHeaders: Record<string, string> = {};
-      let timer: ReturnType<typeof setTimeout> | undefined;
+      let tooLarge = false;
 
       try {
-        const controller = new AbortController();
-        timer = setTimeout(() => controller.abort(), options.timeout);
-
-        const fetchOptions: RequestInit = {
-          method: payload.method,
-          headers: payload.headers as Record<string, string>,
-          signal: controller.signal,
-          redirect: "manual",
-        };
-
-        if (payload.body != null && payload.method !== "GET") {
-          fetchOptions.body =
-            typeof payload.body === "string"
-              ? payload.body
-              : JSON.stringify(payload.body);
-        }
-
-        const response = await fetch(payload.url, fetchOptions);
-        clearTimeout(timer);
-        timer = undefined;
-
-        statusCode = response.status;
-
-        // Bounded response reading
-        const contentLength = response.headers.get("content-length");
-        if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_BYTES) {
-          responseBody = `[Response too large: ${contentLength} bytes]`;
-        } else {
-          const reader = response.body?.getReader();
-          if (reader) {
-            const chunks: Uint8Array[] = [];
-            let totalSize = 0;
-            let done = false;
-            while (!done) {
-              const { value, done: readerDone } = await reader.read();
-              done = readerDone;
-              if (value) {
-                totalSize += value.length;
-                if (totalSize > MAX_RESPONSE_BYTES) {
-                  responseBody = `[Response truncated at ${MAX_RESPONSE_BYTES} bytes]`;
-                  reader.cancel();
-                  break;
-                }
-                chunks.push(value);
-              }
-            }
-            if (!responseBody) {
-              responseBody = new TextDecoder().decode(
-                Buffer.concat(chunks)
-              );
-            }
-          }
-        }
-
-        response.headers.forEach((value, key) => {
-          responseHeaders[key] = value;
-        });
+        const response = await requestPinned(allowedUrl, preparedPayload, options.timeout);
+        statusCode = response.statusCode;
+        responseBody = response.responseBody;
+        responseHeaders = response.responseHeaders;
+        tooLarge = response.tooLarge;
       } catch (err) {
-        if (timer) clearTimeout(timer);
         statusCode = 0;
         responseBody = err instanceof Error ? err.message : "fetch error";
         responseHeaders = {};
@@ -207,17 +406,20 @@ export async function executePayloads(
 
       // Network errors are not server crashes
       const classification: ResultClassification =
-        statusCode === 0
+        tooLarge
+          ? "suspicious"
+          : statusCode === 0
           ? "error"
           : classifyResponse(statusCode, responseBody);
 
       const result: ExecutionResult = {
-        payload,
+        payload: redactPayload(preparedPayload),
         statusCode,
         responseTime,
         responseBody,
         responseHeaders,
         classification,
+        ...(tooLarge ? { finding: "Response too large to classify" } : {}),
       };
 
       results.push(result);
@@ -225,8 +427,13 @@ export async function executePayloads(
     }
   }
 
+  const workerCount = Math.min(
+    Math.max(1, options.concurrency),
+    MAX_CONCURRENCY,
+    payloads.length || 1
+  );
   const workers = Array.from(
-    { length: Math.min(options.concurrency, payloads.length || 1) },
+    { length: workerCount },
     () => worker()
   );
 

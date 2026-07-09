@@ -21,11 +21,15 @@ describe("calculateRiskScore", () => {
       { severity: "high" },
       { severity: "low" },
     ];
-    expect(calculateRiskScore(findings)).toBe(42);
+    expect(calculateRiskScore(findings)).toBe(40);
   });
 
   it("scores medium severity as 5", () => {
     expect(calculateRiskScore([{ severity: "medium" }])).toBe(5);
+  });
+
+  it("scores low severity as 0", () => {
+    expect(calculateRiskScore([{ severity: "low" }])).toBe(0);
   });
 
   it("handles unknown severity as 0", () => {

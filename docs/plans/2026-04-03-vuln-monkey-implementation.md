@@ -21,7 +21,7 @@
 **Step 1: Initialize project**
 
 ```bash
-cd /Users/connor/Dev/vuln-monkey
+cd /Users/conor/Dev/vuln-monkey
 npm init -y
 ```
 

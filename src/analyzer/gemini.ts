@@ -31,6 +31,7 @@ export class GeminiProvider implements LLMProvider {
           timer = setTimeout(() => reject(new Error(`Gemini request timed out after ${GEMINI_TIMEOUT_MS}ms`)), GEMINI_TIMEOUT_MS);
         });
         try {
+          // The current SDK call path does not expose an AbortSignal here; this only stops waiting.
           return await Promise.race([fn(), timeoutPromise]);
         } finally {
           clearTimeout(timer!);

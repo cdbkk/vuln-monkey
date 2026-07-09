@@ -8,11 +8,11 @@ import { createProvider, VALID_MODELS } from "./analyzer/provider.js";
 import { synthesizeFallbackPayloads } from "./analyzer/fallback.js";
 import { executePayloads } from "./executor/runner.js";
 import { calculateRiskScore, getRiskRating } from "./reporter/score.js";
-import { logResult, logSummary } from "./reporter/terminal.js";
+import { logResult, logSummary, sanitizeTerminalText } from "./reporter/terminal.js";
 import { writeMarkdownReport } from "./reporter/markdown.js";
 import { writeJSONReport } from "./reporter/json.js";
 import { buildFindings } from "./reporter/findings.js";
-import type { Endpoint, Report } from "./types.js";
+import type { Endpoint, Report, Vulnerability } from "./types.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -22,6 +22,17 @@ const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-
 const MODEL_LIST = [...VALID_MODELS].join(", ");
 
 const program = new Command();
+
+function parsePositiveIntegerOption(value: string, option: string): number {
+  if (!/^[1-9]\d*$/.test(value)) {
+    program.error(`${option} must be a positive integer (received "${sanitizeTerminalText(value)}")`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) {
+    program.error(`${option} must be a safe positive integer (received "${sanitizeTerminalText(value)}")`);
+  }
+  return parsed;
+}
 
 program
   .name("vuln-monkey")
@@ -40,22 +51,16 @@ program
     }
 
     if (!VALID_MODELS.has(opts.model)) {
-      program.error(`Invalid model "${opts.model}". Must be one of: ${MODEL_LIST}`);
+      program.error(`Invalid model "${sanitizeTerminalText(opts.model)}". Must be one of: ${MODEL_LIST}`);
     }
 
-    const concurrency = parseInt(opts.concurrency, 10);
-    const timeout = parseInt(opts.timeout, 10);
-    if (isNaN(concurrency) || concurrency < 1) {
-      program.error("--concurrency must be a positive integer");
-    }
-    if (isNaN(timeout) || timeout < 1) {
-      program.error("--timeout must be a positive integer");
-    }
+    const concurrency = parsePositiveIntegerOption(opts.concurrency, "--concurrency");
+    const timeout = parsePositiveIntegerOption(opts.timeout, "--timeout");
 
     const outputDir = resolve(opts.output);
     const SENSITIVE_DIRS = ["/etc", "/usr", "/bin", "/sbin", "/sys", "/proc", "/boot", "/root"];
     if (SENSITIVE_DIRS.some((d) => outputDir === d || outputDir.startsWith(d + "/"))) {
-      program.error(`Output path "${outputDir}" targets a sensitive system directory`);
+      program.error(`Output path "${sanitizeTerminalText(outputDir)}" targets a sensitive system directory`);
     }
 
     const startTime = Date.now();
@@ -78,19 +83,35 @@ program
       }
       parseSpinner.succeed(`Parsed ${endpoints.length} endpoint(s)`);
     } catch (err) {
-      parseSpinner.fail(`Parse failed: ${err instanceof Error ? err.message : err}`);
+      parseSpinner.fail(`Parse failed: ${sanitizeTerminalText(err instanceof Error ? err.message : String(err))}`);
       process.exitCode = 1;
       return;
     }
 
     const target = opts.spec || endpoints[0]?.url || "unknown";
-    const provider = createProvider(model);
+    let provider: ReturnType<typeof createProvider>;
+    try {
+      provider = createProvider(model);
+    } catch (err) {
+      console.error(`Provider initialization failed: ${sanitizeTerminalText(err instanceof Error ? err.message : String(err))}`);
+      process.exitCode = 1;
+      return;
+    }
+
     const allPayloads: Awaited<ReturnType<typeof provider.generatePayloads>> = [];
-    let analysisFailures = 0;
+    let endpointsScanned = 0;
+    let endpointsFailed = 0;
 
     // Step 2-3: Analyze and generate payloads per endpoint
     for (const endpoint of endpoints) {
-      const analyzeSpinner = ora(`Analyzing ${endpoint.method} ${endpoint.url}...`).start();
+      const endpointLabel = `${endpoint.method} ${sanitizeTerminalText(endpoint.url)}`;
+      const analyzeSpinner = ora(`Analyzing ${endpointLabel}...`).start();
+      const useFallbackPayloads = (vulns: Vulnerability[], message: string) => {
+        const fallback = synthesizeFallbackPayloads(endpoint, vulns);
+        console.warn(`${message}: ${fallback.length} payloads`);
+        allPayloads.push(...fallback);
+        endpointsScanned++;
+      };
       try {
         const vulns = await provider.analyze(endpoint);
         analyzeSpinner.succeed(`Found ${vulns.length} potential vulnerabilities`);
@@ -111,19 +132,26 @@ program
             payloadSpinner.succeed(`Generated ${payloads.length} payloads`);
           }
           allPayloads.push(...payloads);
+          endpointsScanned++;
         } catch (err) {
-          payloadSpinner.fail(`Payload generation failed: ${err instanceof Error ? err.message : err}`);
-          analysisFailures++;
+          payloadSpinner.fail(
+            `Payload generation failed: ${sanitizeTerminalText(err instanceof Error ? err.message : String(err))}`
+          );
+          useFallbackPayloads(vulns, "Using fallback generator after payload generation failure");
+          endpointsFailed++;
         }
       } catch (err) {
-        analyzeSpinner.fail(`Analysis failed: ${err instanceof Error ? err.message : err}`);
-        analysisFailures++;
+        analyzeSpinner.fail(
+          `Analysis failed: ${sanitizeTerminalText(err instanceof Error ? err.message : String(err))}`
+        );
+        useFallbackPayloads([], "Using fallback generator after analysis failure");
+        endpointsFailed++;
       }
     }
 
     if (allPayloads.length === 0) {
-      if (analysisFailures > 0) {
-        console.error(`All ${analysisFailures} endpoint analysis(es) failed. Check your API key.`);
+      if (endpointsFailed > 0) {
+        console.error(`No payloads generated; ${endpointsFailed}/${endpoints.length} endpoint(s) failed.`);
         process.exitCode = 1;
       } else {
         console.log("No payloads generated. Exiting.");
@@ -135,7 +163,11 @@ program
     if (opts.dryRun) {
       console.log(`\n${allPayloads.length} payloads generated (dry run):\n`);
       for (const p of allPayloads) {
-        console.log(`  ${p.method} ${p.url} — ${p.name}`);
+        console.log(`  ${p.method} ${sanitizeTerminalText(p.url)} — ${sanitizeTerminalText(p.name)}`);
+      }
+      if (endpointsFailed > 0) {
+        console.error(`\nAnalysis incomplete: ${endpointsFailed}/${endpoints.length} endpoint(s) failed.`);
+        process.exitCode = 1;
       }
       return;
     }
@@ -162,10 +194,10 @@ program
     const riskRating = getRiskRating(riskScore);
     const duration = Date.now() - startTime;
 
-    const report: Report = {
+    const report: Report & { endpointsFailed?: number } = {
       target,
       timestamp: new Date().toISOString(),
-      endpointsScanned: endpoints.length,
+      endpointsScanned,
       payloadsFired: allPayloads.length,
       findings,
       riskScore,
@@ -173,18 +205,36 @@ program
       model,
       duration,
     };
+    if (endpointsFailed > 0) {
+      report.endpointsFailed = endpointsFailed;
+      process.exitCode = 1;
+    }
 
     // Step 9: Output reports
     logSummary(report);
 
+    let mdPath: string | undefined;
+    let jsonPath: string | undefined;
+    let reportWriteFailed = false;
+
     try {
-      const mdPath = await writeMarkdownReport(report, outputDir);
-      const jsonPath = await writeJSONReport(report, outputDir);
-      console.log(`\nReports written:`);
-      console.log(`  Markdown: ${mdPath}`);
-      console.log(`  JSON:     ${jsonPath}`);
+      mdPath = await writeMarkdownReport(report, outputDir);
     } catch (err) {
-      console.error(`Failed to write reports: ${err instanceof Error ? err.message : err}`);
+      console.error(`Markdown report failed: ${sanitizeTerminalText(err instanceof Error ? err.message : String(err))}`);
+      reportWriteFailed = true;
+    }
+
+    try {
+      jsonPath = await writeJSONReport(report, outputDir);
+    } catch (err) {
+      console.error(`JSON report failed: ${sanitizeTerminalText(err instanceof Error ? err.message : String(err))}`);
+      reportWriteFailed = true;
+    }
+
+    console.log(`\nReport output:`);
+    console.log(`  Markdown: ${mdPath ? sanitizeTerminalText(mdPath) : "FAILED"}`);
+    console.log(`  JSON:     ${jsonPath ? sanitizeTerminalText(jsonPath) : "FAILED"}`);
+    if (reportWriteFailed) {
       process.exitCode = 1;
     }
   });

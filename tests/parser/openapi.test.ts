@@ -18,7 +18,8 @@ describe("parseOpenAPIFromJSON", () => {
     const endpoints = parseOpenAPIFromJSON(spec);
     const urls = endpoints.map((e) => e.url).sort();
     expect(urls).toContain("https://api.example.com/users");
-    expect(urls).toContain("https://api.example.com/users/{id}");
+    // path params are substituted with a concrete value so the fuzzed URL hits a real route
+    expect(urls).toContain("https://api.example.com/users/1");
   });
 
   it("captures body schema on POST", () => {

@@ -4,7 +4,7 @@ const SEVERITY_WEIGHTS: Record<Severity, number> = {
   critical: 25,
   high: 15,
   medium: 5,
-  low: 2,
+  low: 0,
 };
 
 export function calculateRiskScore(findings: Pick<Finding, "severity">[]): number {
