@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="vuln-monkey">
+  <defs>
+    <linearGradient id="bgA" x1="256" y1="0" x2="256" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#23262d"/>
+      <stop offset="1" stop-color="#15171c"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#3fdc5c" stop-opacity=".55"/>
+      <stop offset=".45" stop-color="#3fdc5c" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#3fdc5c" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bgA)"/>
+  <path fill="#0d0f13" d="M256 159c-77 0-137 56-137 137v74c0 43 35 78 78 78h118c43 0 78-35 78-78v-74c0-81-60-137-137-137Z"/>
+  <circle cx="130" cy="299" r="58" fill="#101216"/>
+  <circle cx="382" cy="299" r="58" fill="#101216"/>
+  <path fill="#101216" d="M159 282c0-58 43-96 97-96s97 38 97 96v84c0 36-29 65-65 65h-64c-36 0-65-29-65-65v-84Z"/>
+  <circle cx="200" cy="245" r="45" fill="#07080b"/>
+  <circle cx="312" cy="245" r="45" fill="#07080b"/>
+  <circle cx="200" cy="245" r="38" fill="url(#glowA)"/>
+  <circle cx="312" cy="245" r="38" fill="url(#glowA)"/>
+  <circle cx="200" cy="245" r="15" fill="#3fdc5c"/>
+  <circle cx="312" cy="245" r="15" fill="#3fdc5c"/>
+  <circle cx="239" cy="344" r="8" fill="#7f858d" opacity=".82"/>
+  <circle cx="273" cy="344" r="8" fill="#7f858d" opacity=".82"/>
+</svg>
