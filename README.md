@@ -1,10 +1,17 @@
-# vuln-monkey
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cdbkk/vuln-monkey/main/assets/banner.svg" alt="vuln-monkey — AI-powered API security fuzzer" width="100%">
+</p>
 
-**AI-powered API security fuzzer — paste a curl or OpenAPI URL, get attack payloads and a risk report.**
+<p align="center">
+  <a href="https://www.npmjs.com/package/vuln-monkey"><img src="https://img.shields.io/npm/v/vuln-monkey?color=2ea043&label=npm" alt="npm"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="license"></a>
+  <img src="https://img.shields.io/badge/node-%E2%89%A520-brightgreen" alt="node >=20">
+  <img src="https://img.shields.io/badge/security-hardened-56d364" alt="security hardened">
+</p>
 
-[![npm](https://img.shields.io/npm/v/vuln-monkey)](https://www.npmjs.com/package/vuln-monkey)
-[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cdbkk/vuln-monkey/main/assets/demo.svg" alt="vuln-monkey terminal demo" width="760">
+</p>
 
 vuln-monkey uses an LLM to analyze API endpoints, generate attack payloads, fire them, and classify the responses. It writes a terminal summary plus Markdown and JSON reports. **v0.2.0** hardens security and correctness around that pipeline.
 
