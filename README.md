@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/cdbkk/vuln-monkey@main/assets/banner.svg" alt="vuln-monkey — AI-powered API security fuzzer" width="100%">
+  <img src="https://cdn.jsdelivr.net/gh/cdbkk/vuln-monkey@4dc700a/assets/banner.svg" alt="vuln-monkey — AI-powered API security fuzzer" width="100%">
 </p>
 
 <p align="center">
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/cdbkk/vuln-monkey@main/assets/demo.svg" alt="vuln-monkey terminal demo" width="760">
+  <img src="https://cdn.jsdelivr.net/gh/cdbkk/vuln-monkey@4dc700a/assets/demo.svg" alt="vuln-monkey terminal demo" width="760">
 </p>
 
 vuln-monkey uses an LLM to analyze API endpoints, generate attack payloads, fire them, and classify the responses. It writes a terminal summary plus Markdown and JSON reports. **v0.2.0** hardens security and correctness around that pipeline.
