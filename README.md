@@ -1,145 +1,56 @@
-<p align="center">
-  <img src=".github/banner.svg" alt="vuln-monkey banner" width="900">
-</p>
+# vuln-monkey
 
-<p align="center">
-  <a href="https://github.com/cdbkk/vuln-monkey/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/cdbkk/vuln-monkey/ci.yml?style=for-the-badge&label=tests&labelColor=161b22&color=27c93f" alt="Tests"></a>
-  <a href="https://www.npmjs.com/package/vuln-monkey"><img src="https://img.shields.io/npm/v/vuln-monkey?style=for-the-badge&labelColor=161b22&color=e74c3c" alt="npm"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3e67b1?style=for-the-badge&labelColor=161b22" alt="License"></a>
-  <a href="https://github.com/cdbkk/vuln-monkey/stargazers"><img src="https://img.shields.io/github/stars/cdbkk/vuln-monkey?style=for-the-badge&labelColor=161b22&color=ffbd2e" alt="Stars"></a>
-</p>
+**AI-powered API security fuzzer — paste a curl or OpenAPI URL, get attack payloads and a risk report.**
 
-<p align="center">
-  <b>Paste a curl command. Get a vulnerability report.</b><br/>
-  8 LLM backends. Use your CLI subscriptions, API keys, or a local model like Ollama.
-</p>
+[![npm](https://img.shields.io/npm/v/vuln-monkey)](https://www.npmjs.com/package/vuln-monkey)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
----
+vuln-monkey uses an LLM to analyze API endpoints, generate attack payloads, fire them, and classify the responses. It writes a terminal summary plus Markdown and JSON reports. **v0.2.0** hardens security and correctness around that pipeline.
 
-<br/>
-
-## Table of Contents
-
-- [Quick Start](#quick-start)
-- [Demo](#demo)
-- [Models & Backends](#models--backends)
-- [How It Works](#how-it-works)
-- [Usage](#usage)
-- [Risk Scoring](#risk-scoring)
-- [Safety & Guardrails](#safety--guardrails)
-- [Tech Stack](#tech-stack)
-- [Development](#development)
-
-<br/>
-
-## Quick Start
-
-Install globally:
+## Quickstart
 
 ```bash
+# one-shot
+npx vuln-monkey "curl -X POST https://api.example.com/users -H 'Authorization: Bearer tok_xxx' -d '{\"name\":\"test\"}'"
+
+# or install globally
 npm install -g vuln-monkey
+vuln-monkey "curl -X GET https://api.example.com/users/42 -H 'Authorization: Bearer tok_xxx'"
 ```
 
-Fuzz an API endpoint:
+Default model is `claude-cli` (your local Claude Code CLI). Reports land in `./reports/`.
+
+OpenAPI instead of curl:
 
 ```bash
-vuln-monkey "curl -X POST https://api.example.com/users \
-  -H 'Authorization: Bearer tok_xxx' \
-  -d '{\"name\":\"test\"}'"
+vuln-monkey --spec https://api.example.com/openapi.json --model openai --concurrency 10
 ```
 
-That's it. It uses your Claude Code subscription by default. Zero configuration.
+## Providers
 
-Outputs:
-- Terminal summary with severity colors.
-- Markdown report with payload details.
-- JSON export for CI/automation.
-- All written to `./reports/`.
+Select a backend with `--model` (default: `claude-cli`).
 
-<br/>
+### CLI backends (no API key in-process)
 
-## Demo
-
-```
-$ vuln-monkey "curl -X POST https://api.example.com/users -H 'Authorization: Bearer tok_xxx' -d '{\"name\":\"test\"}'"
-
-✔ Parsed 1 endpoint(s)
-✔ Found 7 potential vulnerabilities
-✔ Generated 56 payloads
-
-[1/56]   200  23ms  IDOR - Access user 2's profile
-[2/56]   200  31ms  IDOR - Access user 999
-[3/56]   500  89ms  Injection - SQL in name field
-[4/56]   401  12ms  Auth bypass - Missing token validation
-[5/56]   200  28ms  Mass assignment - Set role to admin
-[6/56]   400  15ms  Type juggling - Integer as name
-[7/56]   429  8ms   Rate limiting bypass - Rapid requests
-...
-
-VULN MONKEY REPORT
-Target:             https://api.example.com/users
-Model:              claude-cli
-Endpoints scanned:  1
-Payloads fired:     56
-Duration:           14.23s
-Findings:           3
-
-  CRITICAL  CRASH: Injection - SQL in name field — https://api.example.com/users
-  HIGH      ERROR: Type juggling - Integer as name — https://api.example.com/users
-  MEDIUM    SUSPICIOUS: IDOR - Access user 2's profile — https://api.example.com/users
-
-Risk score: 67/100
-Risk rating: Needs Attention
-
-Reports written:
-  Markdown: ./reports/vuln-monkey-2026-04-03T12-00-00.000Z-a3f2c1.md
-  JSON:     ./reports/vuln-monkey-2026-04-03T12-00-00.000Z-a3f2c1.json
-```
-
-<br/>
-
-## Models & Backends
-
-8 LLM backends. Use what you have.
-
-<details open>
-<summary><b>CLI Backends</b> &mdash; free, uses your existing subscriptions</summary>
-
-<br/>
-
-| Backend | Requires | Command |
-|:--------|:---------|:--------|
-| **claude-cli** *(default)* | Claude Code CLI | `vuln-monkey "curl ..."` |
-| **gemini-cli** | Gemini CLI | `vuln-monkey --model gemini-cli "curl ..."` |
-| **codex-cli** | Codex CLI | `vuln-monkey --model codex-cli "curl ..."` |
-
-Zero config. No API keys. Reads from your CLI subscriptions automatically.
+| Model | Requires |
+|:------|:---------|
+| `claude-cli` *(default)* | `claude` CLI on `PATH` |
+| `gemini-cli` | `gemini` CLI on `PATH` |
+| `codex-cli` | `codex` CLI on `PATH` |
 
 ```bash
-# Uses Claude Code (default)
-vuln-monkey "curl https://api.example.com/users"
-
-# Switch to Gemini
 vuln-monkey --model gemini-cli "curl https://api.example.com/users"
-
-# Or Codex
 vuln-monkey --model codex-cli "curl https://api.example.com/users"
 ```
 
-</details>
+### API backends
 
-<details>
-<summary><b>API Backends</b> &mdash; for CI/CD, automation, direct API access</summary>
-
-<br/>
-
-| Backend | API Provider | Env Var |
-|:--------|:-------------|:--------|
-| **claude** | Anthropic API | `ANTHROPIC_API_KEY` |
-| **gemini** | Google Generative AI | `GEMINI_API_KEY` |
-| **openai** | OpenAI (GPT-4o, etc) | `OPENAI_API_KEY` |
-
-Requires API keys. Useful for CI pipelines.
+| Model | Provider | Env |
+|:------|:---------|:----|
+| `claude` | Anthropic | `ANTHROPIC_API_KEY` |
+| `gemini` | Google Generative AI | `GEMINI_API_KEY` |
+| `openai` | OpenAI-compatible HTTP API | `OPENAI_API_KEY` (optional `OPENAI_BASE_URL` / `OPENAI_API_BASE`) |
 
 ```bash
 ANTHROPIC_API_KEY=sk-... vuln-monkey --model claude "curl https://api.example.com/users"
@@ -147,266 +58,107 @@ OPENAI_API_KEY=sk-... vuln-monkey --model openai "curl https://api.example.com/u
 GEMINI_API_KEY=... vuln-monkey --model gemini "curl https://api.example.com/users"
 ```
 
-</details>
+### Local / self-hosted
 
-<details>
-<summary><b>Local LLMs</b> &mdash; run entirely offline, on your machine</summary>
+| Model | Default base URL | Notes |
+|:------|:-----------------|:------|
+| `ollama` | `http://localhost:11434/v1` | Default model name `llama3.1` |
+| `local` | `http://localhost:1234/v1` | LM Studio, vLLM, llama.cpp server, etc. |
 
-<br/>
-
-| Backend | Runs | Config |
-|:--------|:-----|:-------|
-| **ollama** | Ollama (localhost:11434) | Just `ollama serve` |
-| **local** | Any OpenAI-compatible server | `OPENAI_BASE_URL` env var |
-
-Compatible with Ollama, LM Studio, vLLM, llama.cpp, text-generation-webui, or anything serving `/v1/chat/completions`.
+Both use the OpenAI-compatible client. If `OPENAI_BASE_URL` or `OPENAI_API_BASE` points at a **local** host (`localhost`, `127.*`, `::1`, …), that URL is used instead of the default.
 
 ```bash
-# Ollama — auto-connects to localhost:11434
-ollama serve &
 vuln-monkey --model ollama "curl https://api.example.com/users"
-
-# LM Studio, vLLM, or custom OpenAI-compatible server
 OPENAI_BASE_URL=http://localhost:1234/v1 vuln-monkey --model local "curl https://api.example.com/users"
 ```
 
-</details>
+Valid `--model` values: `claude-cli`, `gemini-cli`, `codex-cli`, `claude`, `gemini`, `openai`, `ollama`, `local`.
 
-<br/>
+## Inputs
 
-## How It Works
-
-```
-            ┌──────────────────────┐
-            │ curl / OpenAPI spec  │
-            └──────────┬───────────┘
-                       │
-            ┌──────────▼───────────┐
-            │  Parse endpoints     │
-            └──────────┬───────────┘
-                       │
-            ┌──────────▼───────────┐
-            │ LLM analysis         │  ◄─ Identifies IDOR, SQL injection,
-            └──────────┬───────────┘     auth bypass, mass assignment, etc.
-                       │
-            ┌──────────▼───────────┐
-            │ Generate payloads    │  ◄─ Creates attack variants
-            └──────────┬───────────┘     (8-10 per vulnerability)
-                       │
-            ┌──────────▼───────────┐
-            │ Fire requests        │  ◄─ Concurrent + SSRF protection
-            └──────────┬───────────┘
-                       │
-            ┌──────────▼───────────┐
-            │ Classify responses   │  ◄─ pass / suspicious / error / crash
-            └──────────┬───────────┘
-                       │
-            ┌──────────▼───────────┐
-            │ Generate reports     │  ◄─ Terminal, Markdown, JSON
-            └──────────────────────┘
-```
-
-<br/>
-
-## Usage
-
-### Input Modes
-
-**Curl command:**
+**Curl command** (positional argument) — parsed into method, URL, headers, body, and auth:
 
 ```bash
-vuln-monkey "curl -X POST https://api.example.com/users -d '{\"name\":\"test\"}'"
+vuln-monkey "curl -X POST https://api.example.com/login -d '{\"user\":\"a\",\"password\":\"b\"}'"
 ```
 
-**OpenAPI specification:**
+**OpenAPI / Swagger** — fetch a remote spec and fuzz every extracted endpoint:
 
 ```bash
 vuln-monkey --spec https://api.example.com/openapi.json
 ```
 
-**Dry run (preview payloads without firing):**
+You must pass a curl string **or** `--spec <url>`.
 
-```bash
-vuln-monkey --dry-run "curl https://api.example.com/users"
-```
-
-### CLI Options
+### CLI options
 
 | Option | Description | Default |
-|:-------|:-----------|:--------|
+|:-------|:------------|:--------|
+| `[curl]` | Curl command to fuzz | — |
 | `--spec <url>` | OpenAPI/Swagger spec URL | — |
-| `--model <name>` | LLM backend (see [Models](#models--backends)) | `claude-cli` |
+| `--model <name>` | LLM backend (see above) | `claude-cli` |
 | `--output <dir>` | Report output directory | `./reports` |
-| `--concurrency <n>` | Parallel requests | `5` |
-| `--timeout <ms>` | Request timeout in milliseconds | `10000` |
-| `--dry-run` | Generate payloads without firing | `false` |
-
-### Examples
-
-Fuzz a protected endpoint:
-
-```bash
-vuln-monkey "curl -X GET https://api.example.com/users/42 \
-  -H 'Authorization: Bearer token_xyz'"
-```
-
-Fuzz an entire API using OpenAPI spec:
-
-```bash
-vuln-monkey --spec https://api.example.com/v1/openapi.json \
-  --model openai --concurrency 10
-```
-
-Fuzz with a local LLM, 20s timeout:
-
-```bash
-vuln-monkey --model ollama --timeout 20000 \
-  "curl -X POST https://api.example.com/login -d '{\"password\":\"test\"}'"
-```
-
-Preview payloads before execution:
+| `--concurrency <n>` | Parallel request workers | `5` |
+| `--timeout <ms>` | Per-request timeout | `10000` |
+| `--dry-run` | Generate payloads only; do not send requests | off |
 
 ```bash
 vuln-monkey --dry-run "curl https://api.example.com/users"
+vuln-monkey --model ollama --timeout 20000 --output ./out "curl -X POST https://api.example.com/login -d '{}'"
 ```
 
-<br/>
+## How it works
 
-## Risk Scoring
+1. **Parse** — curl or OpenAPI → endpoint list (method, URL, headers, body, auth).
+2. **Analyze** — LLM suggests potential vulnerability types for each endpoint.
+3. **Generate payloads** — LLM builds attack requests; if generation fails or returns nothing, a built-in fallback synthesizes common probes (e.g. auth-bypass / mass-assignment style variants).
+4. **Execute** — payloads are fired with configurable concurrency and timeout (`--dry-run` stops before this step).
+5. **Report** — non-pass results become findings, scored into a risk score / rating, then written out.
 
-Findings are weighted by severity and summed into a 0-100 risk score.
+### Output
 
-| Severity | Weight | Risk 0-39 | Risk 40-69 | Risk 70-100 |
-|:---------|:------:|:---------:|:---------:|:----------:|
-| **Critical** | 25 | — | — | **Fail** |
-| **High** | 15 | — | **Needs Attention** | — |
-| **Medium** | 5 | **Acceptable** | — | — |
-| **Low** | 2 | **Acceptable** | — | — |
+- **Terminal** — live per-payload lines and a summary (target, model, endpoints scanned, payloads fired, findings, risk score/rating, duration).
+- **Markdown** — `./reports/…​.md` (or `--output`).
+- **JSON** — `./reports/…​.json` for CI / automation.
 
-Scores aggregate across all findings. A single critical vulnerability = 25 points. Two critical + one high = 65 points (Needs Attention).
+Risk rating is one of `Fail`, `Needs Attention`, or `Acceptable` (score 0–100).
 
-<details>
-<summary><b>Vulnerability categories</b></summary>
+## Security & safety
 
-<br/>
+This is a **security testing tool**. Only run it against systems you are authorized to test.
 
-vuln-monkey identifies:
+v0.2.0 focuses on hardening, not new attack surface:
 
-- **IDOR / BOLA** - Insecure Direct Object References
-- **Injection** - SQL, NoSQL, command injection
-- **Auth Bypass** - Missing/weak authentication
-- **Mass Assignment** - Unintended field exposure
-- **Type Juggling** - Type coercion vulnerabilities
-- **Rate Limiting Bypass** - No/weak rate limits
-- **Race Conditions** - Concurrency issues
-- **Overflow** - Integer/buffer overflow
-- **Data Exposure** - Excessive information disclosure
-- **CORS Misconfiguration** - Broken CORS policies
-- **Info Disclosure** - Stack traces, version leaks
+- **SSRF protections** with DNS pinning on outbound request targets
+- **Secret redaction** in generated reports
+- **Response-size limits** so large bodies cannot blow up the process
+- **LLM-output validation** so malformed model responses do not drive arbitrary execution paths
 
-</details>
+Also: report paths that resolve into sensitive system directories (`/etc`, `/proc`, …) are rejected; terminal output is sanitized for control characters.
 
-<br/>
+## Limitations
 
-## Safety & Guardrails
-
-vuln-monkey is a security testing tool with built-in protections:
-
-| Protection | What It Does |
-|:-----------|:------------|
-| **SSRF Guard** | Blocks requests to localhost, private IPs, link-local, AWS metadata |
-| **Redirect Control** | Does not follow HTTP redirects |
-| **Response Cap** | 1 MB max response body to prevent memory exhaustion |
-| **Credential Redaction** | Authorization headers masked in Markdown reports |
-| **Path Validation** | Prevents report writes to sensitive system directories |
-
-**Legal notice:** This tool is for authorized security testing only. Always get written permission before testing APIs you do not own or operate.
-
-<br/>
-
-## Tech Stack
-
-<p>
-  <img src="https://img.shields.io/badge/TypeScript-3178c6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript">
-  <img src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="Node.js">
-  <img src="https://img.shields.io/badge/Zod-3e67b1?style=for-the-badge&logo=zod&logoColor=white" alt="Zod">
-  <img src="https://img.shields.io/badge/Vitest-6e9f18?style=for-the-badge&logo=vitest&logoColor=white" alt="Vitest">
-  <img src="https://img.shields.io/badge/Claude-cc785c?style=for-the-badge&logo=anthropic&logoColor=white" alt="Claude">
-  <img src="https://img.shields.io/badge/Gemini-4285f4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini">
-  <img src="https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI">
-  <img src="https://img.shields.io/badge/Ollama-000000?style=for-the-badge&logoColor=white" alt="Ollama">
-</p>
-
-**Core:** TypeScript, Node.js 20+, Zod validation
-
-**CLI:** Commander, Chalk, Ora spinners
-
-**Testing:** Vitest, 68 passing tests
-
-**LLM Support:** Claude, Gemini, OpenAI, Ollama
-
-<br/>
-
-## Development
-
-Clone and install:
-
-```bash
-git clone https://github.com/cdbkk/vuln-monkey.git
-cd vuln-monkey
-npm install
-```
-
-Run tests:
-
-```bash
-npm test              # run once
-npm run test:watch    # watch mode
-```
-
-Type check:
-
-```bash
-npx tsc --noEmit
-```
-
-Try locally:
-
-```bash
-npm run dev -- --help
-npm run dev -- "curl https://api.example.com/users"
-```
-
-<br/>
+- Results are **LLM-driven** — suggestions and payloads vary by model and can miss issues or invent noise.
+- You need a working **CLI backend, API key, or local OpenAI-compatible server**.
+- Classifications and findings need **human triage** before you treat them as confirmed vulns.
+- Fallback payloads are generic; they are a safety net, not a full replacement for good model output.
 
 ## Requirements
 
-- **Node.js** 20+
-- **One of:**
-  - Claude Code CLI (`claude` command)
-  - Gemini CLI (`gemini` command)
-  - Codex CLI (`codex` command)
-  - API key for Claude, Gemini, or OpenAI
-  - Local LLM running on localhost (Ollama, LM Studio, etc.)
-
-<br/>
+- Node.js **≥ 20**
+- One of: Claude / Gemini / Codex CLI, or an API key for Claude / Gemini / OpenAI-compatible, or a local model server (Ollama, LM Studio, …)
 
 ## Contributing
 
-Found a bug? Have a feature idea? Pull requests welcome.
+Issues and PRs welcome at [github.com/cdbkk/vuln-monkey](https://github.com/cdbkk/vuln-monkey).
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines.
-
-<br/>
+```bash
+git clone https://github.com/cdbkk/vuln-monkey.git
+cd vuln-monkey && npm install
+npm test
+npm run dev -- --help
+```
 
 ## License
 
-[MIT](LICENSE) — Build what you want.
-
-<br/>
-
----
-
-<p align="center">
-  <a href="https://github.com/cdbkk/vuln-monkey">GitHub</a> • <a href="https://www.npmjs.com/package/vuln-monkey">npm</a>
-</p>
+[MIT](LICENSE)
