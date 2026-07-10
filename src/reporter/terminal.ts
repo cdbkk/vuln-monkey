@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import type { ExecutionResult, Report, Finding, Severity } from "../types.js";
+import { redactUrl } from "../security/redaction.js";
 
 const ANSI_ESCAPE_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g;
 const C0_CONTROL_RE = /[\x00-\x1F\x7F]/g;
@@ -18,6 +19,9 @@ export function logResult(result: ExecutionResult, index: number, total: number)
       break;
     case "suspicious":
       console.log(chalk.yellow(line));
+      break;
+    case "unverified":
+      console.log(chalk.gray(line));
       break;
     case "error":
       console.log(chalk.red(line));
@@ -46,13 +50,16 @@ export function logSummary(report: Report & { endpointsFailed?: number }): void 
 
   console.log();
   console.log(chalk.bold("VULN MONKEY REPORT"));
-  console.log(`Target:             ${sanitizeTerminalText(report.target)}`);
+  console.log(`Target:             ${sanitizeTerminalText(redactUrl(report.target))}`);
   console.log(`Model:              ${report.model}`);
   console.log(`Endpoints scanned:  ${report.endpointsScanned}`);
   if (report.endpointsFailed !== undefined && report.endpointsFailed > 0) {
     console.log(`Endpoints failed:   ${report.endpointsFailed}`);
   }
   console.log(`Payloads fired:     ${report.payloadsFired}`);
+  if (report.payloadsUnverified !== undefined && report.payloadsUnverified > 0) {
+    console.log(`Payloads unverified: ${report.payloadsUnverified}`);
+  }
   console.log(`Duration:           ${durationSecs}s`);
   console.log(`Findings:           ${report.findings.length}`);
 
@@ -71,7 +78,7 @@ export function logSummary(report: Report & { endpointsFailed?: number }): void 
     console.log();
     for (const finding of report.findings) {
       console.log(
-        `${severityBadge(finding.severity)} ${sanitizeTerminalText(finding.title)} — ${sanitizeTerminalText(finding.endpoint)}`
+        `${severityBadge(finding.severity)} ${sanitizeTerminalText(finding.title)} — ${sanitizeTerminalText(redactUrl(finding.endpoint))}`
       );
     }
   }

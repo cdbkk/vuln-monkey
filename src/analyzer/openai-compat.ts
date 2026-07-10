@@ -6,7 +6,8 @@ const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
-const SEND_COMPAT_API_KEY = "OPENAI_COMPAT_SEND_API_KEY";
+const MAX_RETRY_DELAY_MS = 10_000;
+const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 interface ChatCompletionResponse {
   choices: Array<{
@@ -22,13 +23,45 @@ function isOpenAIHost(baseUrl: string): boolean {
   }
 }
 
-function isLocalHost(baseUrl: string): boolean {
-  try {
-    const host = new URL(baseUrl).hostname.toLowerCase();
-    return host === "localhost" || host.endsWith(".localhost") || host.startsWith("127.") || host === "0.0.0.0" || host === "::1" || host === "[::1]";
-  } catch {
-    return false;
+function isTransientStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function retryDelay(response: Response): number {
+  const value = response.headers.get("retry-after");
+  if (!value) return RETRY_DELAY_MS;
+
+  const seconds = Number(value);
+  const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - Date.now();
+  return Number.isFinite(delay) ? Math.min(MAX_RETRY_DELAY_MS, Math.max(0, delay)) : RETRY_DELAY_MS;
+}
+
+async function readLimitedBody(response: Response): Promise<string> {
+  const declaredSize = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredSize) && declaredSize > MAX_RESPONSE_BYTES) {
+    await response.body?.cancel();
+    throw new Error(`OpenAI API response exceeds ${MAX_RESPONSE_BYTES} bytes`);
   }
+
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let size = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_RESPONSE_BYTES) {
+      await reader.cancel();
+      throw new Error(`OpenAI API response exceeds ${MAX_RESPONSE_BYTES} bytes`);
+    }
+    chunks.push(decoder.decode(value, { stream: true }));
+  }
+
+  chunks.push(decoder.decode());
+  return chunks.join("");
 }
 
 export class OpenAICompatProvider implements LLMProvider {
@@ -47,17 +80,13 @@ export class OpenAICompatProvider implements LLMProvider {
     }
   }
 
-  private shouldSendApiKey(): boolean {
-    if (!this.apiKey || isLocalHost(this.baseUrl)) return false;
-    return isOpenAIHost(this.baseUrl) || process.env[SEND_COMPAT_API_KEY] === "1";
-  }
-
   private async chat(prompt: string): Promise<string> {
     let lastError: unknown;
+    let delay = RETRY_DELAY_MS;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       if (attempt > 0) {
-        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        await new Promise((r) => setTimeout(r, delay));
       }
 
       const controller = new AbortController();
@@ -67,7 +96,7 @@ export class OpenAICompatProvider implements LLMProvider {
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
         };
-        if (this.shouldSendApiKey()) {
+        if (this.apiKey) {
           headers["Authorization"] = `Bearer ${this.apiKey}`;
         }
 
@@ -83,17 +112,26 @@ export class OpenAICompatProvider implements LLMProvider {
           signal: controller.signal,
         });
 
+        const body = await readLimitedBody(response);
         if (!response.ok) {
-          const body = await response.text();
-          throw new Error(`OpenAI API ${response.status}: ${body.slice(0, 200)}`);
+          const error = new Error(`OpenAI API ${response.status}`);
+          if (isTransientStatus(response.status) && attempt < MAX_RETRIES) {
+            lastError = error;
+            delay = retryDelay(response);
+            continue;
+          }
+          throw error;
         }
 
-        const data = (await response.json()) as ChatCompletionResponse;
-        clearTimeout(timer);
+        const data = JSON.parse(body) as ChatCompletionResponse;
         return data.choices[0]?.message?.content || "";
       } catch (err) {
-        clearTimeout(timer);
         lastError = err;
+        const transientNetworkError = err instanceof TypeError || (err instanceof DOMException && err.name === "AbortError");
+        if (!transientNetworkError || attempt === MAX_RETRIES) throw err;
+        delay = RETRY_DELAY_MS;
+      } finally {
+        clearTimeout(timer);
       }
     }
 

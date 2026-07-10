@@ -3,6 +3,7 @@ import {
   parseVulnerabilities,
   parsePayloads,
   buildAnalysisPrompt,
+  buildPayloadPrompt,
 } from "../../src/analyzer/prompts.js";
 import type { Endpoint } from "../../src/types.js";
 
@@ -58,6 +59,15 @@ describe("parseVulnerabilities", () => {
     expect(parseVulnerabilities("", "https://api.example.com")).toEqual([]);
     expect(parseVulnerabilities("{}", "https://api.example.com")).toEqual([]);
   });
+
+  it("caps model output at five vulnerabilities", () => {
+    const raw = JSON.stringify(Array.from({ length: 20 }, (_, index) => ({
+      type: `type-${index}`,
+      description: "test",
+      severity: "low",
+    })));
+    expect(parseVulnerabilities(raw, "https://api.example.com")).toHaveLength(5);
+  });
 });
 
 describe("parsePayloads", () => {
@@ -79,10 +89,35 @@ describe("parsePayloads", () => {
     expect(payloads[0].method).toBe("GET");
   });
 
+  it("preserves execution expectations from validated model output", () => {
+    const payloads = parsePayloads(JSON.stringify([{
+      name: "No credentials",
+      vulnerability: "auth bypass",
+      method: "GET",
+      url: "https://api.example.com/users",
+      headers: {},
+      omitAuth: true,
+      expectRejection: true,
+    }]));
+
+    expect(payloads[0]).toMatchObject({ omitAuth: true, expectRejection: true });
+  });
+
   it("returns empty array for unparseable input", () => {
     expect(parsePayloads("not json")).toEqual([]);
     expect(parsePayloads("")).toEqual([]);
     expect(parsePayloads("{}")).toEqual([]);
+  });
+
+  it("caps model output at fifty payloads", () => {
+    const raw = JSON.stringify(Array.from({ length: 100 }, (_, index) => ({
+      name: `payload-${index}`,
+      vulnerability: "test",
+      method: "GET",
+      url: "https://api.example.com",
+      headers: {},
+    })));
+    expect(parsePayloads(raw)).toHaveLength(50);
   });
 });
 
@@ -99,5 +134,36 @@ describe("buildAnalysisPrompt", () => {
     expect(prompt).toContain("injection");
     expect(prompt).toContain("race conditions");
     expect(prompt).toContain("auth bypass");
+  });
+
+  it("does not send credentials to model providers", () => {
+    const endpoint: Endpoint = {
+      ...TEST_ENDPOINT,
+      url: "https://user:pass@api.example.com/users?access_token=query-secret",
+      headers: {
+        Authorization: "Bearer header-secret",
+        Cookie: "session=cookie-secret",
+        "X-Custom-Key": "custom-header-secret",
+      },
+      body: { username: "connor", password: "body-secret" },
+      bodySchema: { example: { apiKey: "schema-secret" } },
+      auth: { type: "apikey", headerName: "X-Custom-Key", value: "custom-header-secret" },
+    };
+
+    const prompts = [
+      buildAnalysisPrompt(endpoint),
+      buildPayloadPrompt(endpoint, []),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt).not.toContain("pass@api");
+      expect(prompt).not.toContain("query-secret");
+      expect(prompt).not.toContain("header-secret");
+      expect(prompt).not.toContain("cookie-secret");
+      expect(prompt).not.toContain("custom-header-secret");
+      expect(prompt).not.toContain("body-secret");
+      expect(prompt).not.toContain("schema-secret");
+      expect(prompt).toContain("[REDACTED]");
+    }
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "vuln-monkey",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "AI-powered API security fuzzer that uses LLMs to discover logic flaws in your endpoints",
   "main": "dist/cli.js",
   "type": "module",
@@ -12,10 +12,12 @@
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "build": "tsc",
+    "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "tsc"
+    "prepack": "npm run build",
+    "prepublishOnly": "npm test"
   },
   "engines": {
     "node": ">=20"
@@ -41,7 +43,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.82.0",
+    "@anthropic-ai/sdk": "^0.91.1",
     "@google/generative-ai": "^0.24.1",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
@@ -50,8 +52,8 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "tsx": "^4.21.0",
+    "tsx": "^4.23.0",
     "typescript": "^6.0.2",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.10"
   }
 }

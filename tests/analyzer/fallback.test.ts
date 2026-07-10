@@ -36,6 +36,11 @@ describe("synthesizeFallbackPayloads", () => {
     expect(payloads.length).toBeGreaterThanOrEqual(4);
   });
 
+  it("does not expect public no-auth endpoints to reject the baseline probe", () => {
+    const [noAuth] = synthesizeFallbackPayloads(GET_NO_AUTH, []);
+    expect(noAuth.expectRejection).toBe(false);
+  });
+
   it("never returns empty for minimal body schemas (the regression case)", () => {
     const payloads = synthesizeFallbackPayloads(MINIMAL_SCHEMA_POST, []);
     expect(payloads.length).toBeGreaterThanOrEqual(8);
@@ -46,6 +51,8 @@ describe("synthesizeFallbackPayloads", () => {
     const noAuth = payloads[0];
     expect(noAuth.vulnerability).toBe("auth bypass");
     expect(noAuth.headers.Authorization).toBeUndefined();
+    expect(noAuth.omitAuth).toBe(true);
+    expect(noAuth.expectRejection).toBe(true);
   });
 
   it("strips Authorization, X-API-Key, apikey, api-key headers in no-auth probe", () => {
@@ -67,6 +74,17 @@ describe("synthesizeFallbackPayloads", () => {
     expect(noAuth!.headers.apikey).toBeUndefined();
     expect(noAuth!.headers["api-key"]).toBeUndefined();
     expect(noAuth!.headers["Content-Type"]).toBe("application/json");
+  });
+
+  it("strips a custom OpenAPI API-key header in no-auth probes", () => {
+    const endpoint: Endpoint = {
+      ...POST_WITH_AUTH,
+      headers: { "X-Custom-Key": "secret" },
+      auth: { type: "apikey", headerName: "X-Custom-Key", value: "secret" },
+    };
+
+    const noAuth = synthesizeFallbackPayloads(endpoint, [])[0];
+    expect(noAuth.headers).not.toHaveProperty("X-Custom-Key");
   });
 
   it("includes invalid-token probe only when endpoint has auth", () => {
@@ -93,6 +111,7 @@ describe("synthesizeFallbackPayloads", () => {
     const swap = post.find((p) => p.name.includes("Method Override"));
     expect(swap).toBeDefined();
     expect(swap!.method).toBe("GET");
+    expect(swap!.omitAuth).toBe(true);
 
     const get = synthesizeFallbackPayloads(GET_NO_AUTH, []);
     const swapGet = get.find((p) => p.name.includes("Method Override"));

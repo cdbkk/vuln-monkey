@@ -12,7 +12,7 @@ function severityForResult(result: ExecutionResult): Finding["severity"] {
 
 export function buildFindings(results: ExecutionResult[]): Finding[] {
   return results
-    .filter((r) => r.classification !== "pass")
+    .filter((r) => r.classification !== "pass" && r.classification !== "unverified")
     .map((r) => ({
       title: `${r.classification.toUpperCase()}: ${r.payload.name}`,
       severity: severityForResult(r),
