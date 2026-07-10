@@ -1,5 +1,5 @@
 import { existsSync, realpathSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { Finding } from "./types.js";
 
 const MAX_CONCURRENCY = 100;
@@ -58,9 +58,16 @@ function outputDirectory(value: string): string {
     realpathSync(existingParent),
     relative(existingParent, outputDir)
   );
-  const sensitiveDirs = ["/etc", "/usr", "/bin", "/sbin", "/sys", "/proc", "/boot", "/root"]
+  const sensitiveDirs = [
+    "/etc", "/usr", "/bin", "/sbin", "/sys", "/proc", "/boot", "/root",
+    process.env.SystemRoot,
+  ]
+    .filter((dir): dir is string => Boolean(dir))
     .map((dir) => existsSync(dir) ? realpathSync(dir) : dir);
-  if (sensitiveDirs.some((dir) => realOutputDir === dir || realOutputDir.startsWith(dir + "/"))) {
+  if (sensitiveDirs.some((dir) => {
+    const child = relative(dir, realOutputDir);
+    return child === "" || (child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child));
+  })) {
     throw new Error(`Output path targets a sensitive system directory`);
   }
   return outputDir;

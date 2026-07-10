@@ -18,6 +18,17 @@ const ENDPOINT: Endpoint = {
   auth: { type: "none" },
 };
 
+function cliInvocation(command: string) {
+  const [actualCommand, rawArgs, options] = execFileMock.mock.calls[0];
+  if (process.platform === "win32") {
+    expect(actualCommand.toLowerCase()).toBe((process.env.ComSpec ?? "cmd.exe").toLowerCase());
+    expect(rawArgs.slice(0, 4)).toEqual(["/d", "/s", "/c", command]);
+    return { args: rawArgs.slice(4), options };
+  }
+  expect(actualCommand).toBe(command);
+  return { args: rawArgs, options };
+}
+
 describe("CLIProvider", () => {
   beforeEach(() => {
     execFileMock.mockImplementation((command, args, options, callback) => {
@@ -45,8 +56,7 @@ describe("CLIProvider", () => {
   ])("passes the prompt through stdin for %s", async (backend, command) => {
     await new CLIProvider(backend).analyze(ENDPOINT);
 
-    const [actualCommand, args] = execFileMock.mock.calls[0];
-    expect(actualCommand).toBe(command);
+    const { args } = cliInvocation(command);
     expect(args.join(" ")).not.toContain(ENDPOINT.url);
     expect(stdinEnd).toHaveBeenCalledWith(expect.stringContaining(ENDPOINT.url));
   });
@@ -55,7 +65,7 @@ describe("CLIProvider", () => {
     process.env.VULN_MONKEY_UNRELATED_SECRET = "do-not-inherit";
     await new CLIProvider("codex-cli").analyze(ENDPOINT);
 
-    const [, args, options] = execFileMock.mock.calls[0];
+    const { args, options } = cliInvocation("codex");
     expect(args.slice(0, 9)).toEqual([
       "exec", "--full-auto", "--sandbox", "read-only", "--ephemeral",
       "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--disable",
@@ -70,21 +80,21 @@ describe("CLIProvider", () => {
 
   it("uses ComSpec explicitly for Windows CLI shims", async () => {
     const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
-    const previousComSpec = process.env.ComSpec;
-    process.env.ComSpec = "C:\\Windows\\System32\\cmd.exe";
     try {
       await new CLIProvider("codex-cli").analyze(ENDPOINT);
 
       const [command, args, options] = execFileMock.mock.calls[0];
-      expect(command).toBe(process.env.ComSpec);
+      expect(command).toBe(process.env.ComSpec ?? "cmd.exe");
       expect(args.slice(0, 4)).toEqual(["/d", "/s", "/c", "codex"]);
       expect(options.shell).toBeUndefined();
-      expect(options.env.ComSpec).toBe(process.env.ComSpec);
+      if (process.env.ComSpec) {
+        const inherited = Object.entries(options.env)
+          .find(([key]) => key.toUpperCase() === "COMSPEC")?.[1];
+        expect(inherited).toBe(process.env.ComSpec);
+      }
       expect(stdinEnd).toHaveBeenCalled();
     } finally {
       platform.mockRestore();
-      if (previousComSpec === undefined) delete process.env.ComSpec;
-      else process.env.ComSpec = previousComSpec;
     }
   });
 

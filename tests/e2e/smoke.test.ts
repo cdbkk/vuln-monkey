@@ -136,7 +136,8 @@ describe("CLI smoke tests", () => {
   it("rejects output symlinks into sensitive directories", () => {
     const tempDir = mkdtempSync(join(tmpdir(), "vuln-monkey-output-"));
     const outputDir = join(tempDir, "reports");
-    symlinkSync("/etc", outputDir);
+    const sensitiveDir = process.platform === "win32" ? process.env.SystemRoot! : "/etc";
+    symlinkSync(sensitiveDir, outputDir, process.platform === "win32" ? "junction" : undefined);
     try {
       execFileSync(
         process.execPath,

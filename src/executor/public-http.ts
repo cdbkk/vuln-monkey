@@ -95,8 +95,11 @@ function requestAddress(
       method: options.method,
       headers: options.headers,
       signal: controller.signal,
-      lookup: (_hostname, _lookupOptions, callback) =>
-        callback(null, address.address, address.family),
+      lookup: (_hostname, lookupOptions, callback) => {
+        const pinnedAddress = { address: address.address, family: address.family };
+        if (lookupOptions.all) callback(null, [pinnedAddress]);
+        else callback(null, pinnedAddress.address, pinnedAddress.family);
+      },
     };
     const onResponse = (incoming: IncomingMessage): void => {
       const statusCode = incoming.statusCode ?? 0;

@@ -89,6 +89,26 @@ describe("readPublicUrl", () => {
     })).resolves.toMatchObject({ statusCode: 200, body: "ok" });
   });
 
+  it("returns pinned addresses in Node's all-address lookup shape", async () => {
+    mocks.resolve.mockResolvedValue(["8.8.8.8"]);
+    mockHttpResponse();
+
+    await requestPublicUrl("http://example.com", {
+      method: "GET",
+      headers: {},
+      timeout: 100,
+    });
+
+    const lookup = mocks.request.mock.calls[0][1].lookup;
+    const addresses = await new Promise((resolve, reject) => {
+      lookup("example.com", { all: true }, (error: Error | null, result: unknown) => {
+        if (error) reject(error);
+        else resolve(result);
+      });
+    });
+    expect(addresses).toEqual([{ address: "8.8.8.8", family: 4 }]);
+  });
+
   it("applies the timeout while resolving DNS", async () => {
     mocks.resolve.mockImplementation(() => new Promise(() => {}));
     const start = Date.now();
