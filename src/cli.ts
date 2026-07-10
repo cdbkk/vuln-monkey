@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { resolve } from "node:path";
+import { dirname, join } from "node:path";
 import ora from "ora";
 import { parseCurl } from "./parser/curl.js";
 import { parseOpenAPIFromURL } from "./parser/openapi.js";
@@ -12,27 +12,16 @@ import { logResult, logSummary, sanitizeTerminalText } from "./reporter/terminal
 import { writeMarkdownReport } from "./reporter/markdown.js";
 import { writeJSONReport } from "./reporter/json.js";
 import { buildFindings } from "./reporter/findings.js";
+import { redactUrl } from "./security/redaction.js";
+import { collectOption, parseRuntimeOptions, reachesFailureThreshold } from "./cli-options.js";
 import type { Endpoint, Report, Vulnerability } from "./types.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
 const MODEL_LIST = [...VALID_MODELS].join(", ");
-
 const program = new Command();
-
-function parsePositiveIntegerOption(value: string, option: string): number {
-  if (!/^[1-9]\d*$/.test(value)) {
-    program.error(`${option} must be a positive integer (received "${sanitizeTerminalText(value)}")`);
-  }
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed)) {
-    program.error(`${option} must be a safe positive integer (received "${sanitizeTerminalText(value)}")`);
-  }
-  return parsed;
-}
 
 program
   .name("vuln-monkey")
@@ -44,23 +33,32 @@ program
   .option("--output <dir>", "Report output directory", "./reports")
   .option("--concurrency <n>", "Parallel requests", "5")
   .option("--timeout <ms>", "Request timeout", "10000")
+  .option("-H, --header <header>", "Header applied to every endpoint (repeatable)", collectOption, [])
+  .option("--credential-origin <origin>", "Origin allowed to receive -H credentials (repeatable)", collectOption, [])
+  .option("--allow-private", "Allow private/local target addresses", false)
+  .option("--fail-on <severity>", "Exit non-zero at or above: low, medium, high, critical", "none")
   .option("--dry-run", "Generate payloads without firing", false)
   .action(async (curl, opts) => {
     if (!curl && !opts.spec) {
       program.error("Provide a curl command or --spec <url>");
+    }
+    if (curl && opts.spec) {
+      program.error("Provide a curl command or --spec <url>, not both");
     }
 
     if (!VALID_MODELS.has(opts.model)) {
       program.error(`Invalid model "${sanitizeTerminalText(opts.model)}". Must be one of: ${MODEL_LIST}`);
     }
 
-    const concurrency = parsePositiveIntegerOption(opts.concurrency, "--concurrency");
-    const timeout = parsePositiveIntegerOption(opts.timeout, "--timeout");
-
-    const outputDir = resolve(opts.output);
-    const SENSITIVE_DIRS = ["/etc", "/usr", "/bin", "/sbin", "/sys", "/proc", "/boot", "/root"];
-    if (SENSITIVE_DIRS.some((d) => outputDir === d || outputDir.startsWith(d + "/"))) {
-      program.error(`Output path "${sanitizeTerminalText(outputDir)}" targets a sensitive system directory`);
+    let runtimeOptions: ReturnType<typeof parseRuntimeOptions>;
+    try {
+      runtimeOptions = parseRuntimeOptions(opts);
+    } catch (err) {
+      return program.error(sanitizeTerminalText(err instanceof Error ? err.message : String(err)));
+    }
+    const { concurrency, timeout, headerOverrides, credentialOrigins, failOn, outputDir } = runtimeOptions;
+    if (opts.spec && Object.keys(headerOverrides).length > 0 && credentialOrigins.length === 0) {
+      program.error("--credential-origin is required when using -H with --spec");
     }
 
     const startTime = Date.now();
@@ -72,7 +70,12 @@ program
 
     try {
       if (opts.spec) {
-        endpoints = await parseOpenAPIFromURL(opts.spec);
+        endpoints = await parseOpenAPIFromURL(
+          opts.spec,
+          headerOverrides,
+          credentialOrigins,
+          opts.allowPrivate
+        );
       } else {
         endpoints = [parseCurl(curl)];
       }
@@ -81,6 +84,22 @@ program
         process.exitCode = 1;
         return;
       }
+      endpoints = endpoints.map((endpoint) => {
+        const canReceiveHeaders = !opts.spec
+          || credentialOrigins.includes(new URL(endpoint.url).origin);
+        return canReceiveHeaders
+          ? {
+              ...endpoint,
+              headers: { ...endpoint.headers, ...headerOverrides },
+              credentialHeaderNames: opts.spec
+                ? [...new Set([
+                    ...(endpoint.credentialHeaderNames ?? []),
+                    ...Object.keys(headerOverrides),
+                  ])]
+                : endpoint.credentialHeaderNames,
+            }
+          : endpoint;
+      });
       parseSpinner.succeed(`Parsed ${endpoints.length} endpoint(s)`);
     } catch (err) {
       parseSpinner.fail(`Parse failed: ${sanitizeTerminalText(err instanceof Error ? err.message : String(err))}`);
@@ -99,17 +118,24 @@ program
     }
 
     const allPayloads: Awaited<ReturnType<typeof provider.generatePayloads>> = [];
+    const payloadsByEndpoint = new Map<Endpoint, typeof allPayloads>();
+    const addPayloads = (endpoint: Endpoint, payloads: typeof allPayloads) => {
+      allPayloads.push(...payloads);
+      const endpointPayloads = payloadsByEndpoint.get(endpoint) ?? [];
+      endpointPayloads.push(...payloads);
+      payloadsByEndpoint.set(endpoint, endpointPayloads);
+    };
     let endpointsScanned = 0;
     let endpointsFailed = 0;
 
     // Step 2-3: Analyze and generate payloads per endpoint
     for (const endpoint of endpoints) {
-      const endpointLabel = `${endpoint.method} ${sanitizeTerminalText(endpoint.url)}`;
+      const endpointLabel = `${endpoint.method} ${sanitizeTerminalText(redactUrl(endpoint.url))}`;
       const analyzeSpinner = ora(`Analyzing ${endpointLabel}...`).start();
       const useFallbackPayloads = (vulns: Vulnerability[], message: string) => {
         const fallback = synthesizeFallbackPayloads(endpoint, vulns);
         console.warn(`${message}: ${fallback.length} payloads`);
-        allPayloads.push(...fallback);
+        addPayloads(endpoint, fallback);
         endpointsScanned++;
       };
       try {
@@ -131,7 +157,7 @@ program
           } else {
             payloadSpinner.succeed(`Generated ${payloads.length} payloads`);
           }
-          allPayloads.push(...payloads);
+          addPayloads(endpoint, payloads);
           endpointsScanned++;
         } catch (err) {
           payloadSpinner.fail(
@@ -163,7 +189,7 @@ program
     if (opts.dryRun) {
       console.log(`\n${allPayloads.length} payloads generated (dry run):\n`);
       for (const p of allPayloads) {
-        console.log(`  ${p.method} ${sanitizeTerminalText(p.url)} — ${sanitizeTerminalText(p.name)}`);
+        console.log(`  ${p.method} ${sanitizeTerminalText(redactUrl(p.url))} — ${sanitizeTerminalText(p.name)}`);
       }
       if (endpointsFailed > 0) {
         console.error(`\nAnalysis incomplete: ${endpointsFailed}/${endpoints.length} endpoint(s) failed.`);
@@ -176,25 +202,35 @@ program
     const execSpinner = ora("Firing payloads...").start();
     let resultIndex = 0;
 
-    const results = await executePayloads(
-      allPayloads,
-      { concurrency, timeout },
-      (result) => {
-        resultIndex++;
-        execSpinner.stop();
-        logResult(result, resultIndex, allPayloads.length);
-      }
-    );
+    const results = [] as Awaited<ReturnType<typeof executePayloads>>;
+    for (const endpoint of endpoints) {
+      const endpointPayloads = payloadsByEndpoint.get(endpoint) ?? [];
+      if (endpointPayloads.length === 0) continue;
+      results.push(...await executePayloads(
+        endpointPayloads,
+        { concurrency, timeout, endpoint, allowPrivate: opts.allowPrivate },
+        (result) => {
+          resultIndex++;
+          execSpinner.stop();
+          logResult(result, resultIndex, allPayloads.length);
+        }
+      ));
+    }
 
     // Step 6: Build findings from non-pass results
     const findings = buildFindings(results);
+    const payloadsUnverified = results.filter((result) => result.classification === "unverified").length;
+    if (payloadsUnverified > 0) process.exitCode = 1;
+    if (reachesFailureThreshold(findings, failOn)) {
+      process.exitCode = 1;
+    }
 
     // Step 7-8: Score and build report
     const riskScore = calculateRiskScore(findings);
     const riskRating = getRiskRating(riskScore);
     const duration = Date.now() - startTime;
 
-    const report: Report & { endpointsFailed?: number } = {
+    const report: Report & { endpointsFailed?: number; payloadsUnverified?: number } = {
       target,
       timestamp: new Date().toISOString(),
       endpointsScanned,
@@ -205,6 +241,7 @@ program
       model,
       duration,
     };
+    if (payloadsUnverified > 0) report.payloadsUnverified = payloadsUnverified;
     if (endpointsFailed > 0) {
       report.endpointsFailed = endpointsFailed;
       process.exitCode = 1;

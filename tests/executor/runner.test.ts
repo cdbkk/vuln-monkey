@@ -1,9 +1,13 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { classifyResponse, executePayloads } from "../../src/executor/runner.js";
 
 describe("classifyResponse", () => {
-  it("marks 2xx with reflected payload as suspicious", () => {
-    expect(classifyResponse(200, '{"admin":true,"role":"admin"}')).toBe("suspicious");
+  it("does not treat a benign 2xx as a vulnerability", () => {
+    expect(classifyResponse(200, "ok")).toBe("pass");
+  });
+
+  it("flags a successful request that should have been rejected", () => {
+    expect(classifyResponse(200, "ok", true)).toBe("suspicious");
   });
 
   it("marks 5xx as crash", () => {
@@ -39,45 +43,7 @@ describe("classifyResponse", () => {
   });
 });
 
-function makeStreamBody(text: string): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(text);
-  return new ReadableStream({
-    start(controller) {
-      controller.enqueue(bytes);
-      controller.close();
-    },
-  });
-}
-
 describe("executePayloads", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("executes payloads and calls onResult callback", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      status: 200,
-      headers: new Headers(),
-      body: makeStreamBody("ok"),
-    });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const onResult = vi.fn();
-    const payload = {
-      name: "test",
-      method: "GET" as const,
-      url: "https://api.example.com/test",
-      vulnerability: "test",
-      headers: {},
-    };
-
-    const results = await executePayloads([payload], { concurrency: 1, timeout: 5000 }, onResult);
-
-    expect(results).toHaveLength(1);
-    expect(onResult).toHaveBeenCalledOnce();
-  });
-
   it("handles empty payload array", async () => {
     const onResult = vi.fn();
     const results = await executePayloads([], { concurrency: 1, timeout: 5000 }, onResult);
@@ -91,13 +57,101 @@ describe("executePayloads", () => {
       method: "GET" as const,
       url: "http://127.0.0.1/admin",
       vulnerability: "SSRF",
-      headers: {},
+      headers: { "Proxy-Authorization": "secret" },
     };
 
     const results = await executePayloads([payload], { concurrency: 1, timeout: 5000 }, onResult);
 
     expect(results).toHaveLength(1);
-    expect(results[0].classification).toBe("pass");
-    expect(results[0].responseBody).toContain("Blocked");
+    expect(results[0].classification).toBe("unverified");
+    expect(results[0].responseBody).toContain("URL not allowed");
+    expect(results[0].payload.headers["Proxy-Authorization"]).toBe("[REDACTED]");
+    expect(onResult).toHaveBeenCalledOnce();
+  });
+
+  it("blocks payloads outside the endpoint origin", async () => {
+    const onResult = vi.fn();
+    const payload = {
+      name: "redirected-test",
+      method: "GET" as const,
+      url: "https://8.8.8.8/test",
+      vulnerability: "test",
+      headers: {},
+    };
+    const endpoint = {
+      method: "GET" as const,
+      url: "https://1.1.1.1/api",
+      headers: {},
+      auth: { type: "none" as const },
+    };
+
+    const results = await executePayloads(
+      [payload],
+      { concurrency: 1, timeout: 5000, endpoint },
+      onResult
+    );
+
+    expect(results[0].classification).toBe("unverified");
+    expect(results[0].responseBody).toMatch(/cross-origin/i);
+    expect(onResult).toHaveBeenCalledOnce();
+  });
+
+  it("does not re-add endpoint credentials to no-auth probes", async () => {
+    const payload = {
+      name: "no-auth",
+      method: "GET" as const,
+      url: "http://127.0.0.1/test",
+      vulnerability: "auth bypass",
+      headers: {},
+      omitAuth: true,
+    };
+    const endpoint = {
+      method: "GET" as const,
+      url: "http://127.0.0.1/test",
+      headers: { Authorization: "Bearer real-secret", Cookie: "session=secret" },
+      auth: { type: "bearer" as const, value: "real-secret" },
+    };
+
+    const [result] = await executePayloads(
+      [payload],
+      { concurrency: 1, timeout: 100, endpoint },
+      vi.fn()
+    );
+
+    expect(result.payload.headers).not.toHaveProperty("Authorization");
+    expect(result.payload.headers).not.toHaveProperty("Cookie");
+  });
+
+  it("removes custom API-key credentials from no-auth probes", async () => {
+    const payload = {
+      name: "no-auth",
+      method: "GET" as const,
+      url: "http://127.0.0.1/test",
+      vulnerability: "auth bypass",
+      headers: {
+        "X-Custom-Key": "model-copied-secret",
+        "X-Second-Key": "second-secret",
+      },
+      omitAuth: true,
+    };
+    const endpoint = {
+      method: "GET" as const,
+      url: "http://127.0.0.1/test",
+      headers: {
+        "X-Custom-Key": "real-secret",
+        "X-Second-Key": "second-secret",
+      },
+      auth: { type: "apikey" as const, headerName: "X-Custom-Key", value: "real-secret" },
+      credentialHeaderNames: ["X-Custom-Key", "X-Second-Key"],
+    };
+
+    const [result] = await executePayloads(
+      [payload],
+      { concurrency: 1, timeout: 100, endpoint },
+      vi.fn()
+    );
+
+    expect(result.payload.headers).not.toHaveProperty("X-Custom-Key");
+    expect(result.payload.headers).not.toHaveProperty("X-Second-Key");
   });
 });

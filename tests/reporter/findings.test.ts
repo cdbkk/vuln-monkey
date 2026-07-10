@@ -24,9 +24,10 @@ function makeResult(
 }
 
 describe("buildFindings", () => {
-  it("filters out pass results", () => {
+  it("filters out pass and unverified results", () => {
     const results = [
       makeResult("pass"),
+      makeResult("unverified", { statusCode: 0 }),
       makeResult("suspicious"),
       makeResult("crash"),
     ];
@@ -66,7 +67,7 @@ describe("buildFindings", () => {
   });
 
   it("returns empty array when all pass", () => {
-    const results = [makeResult("pass"), makeResult("pass"), makeResult("pass")];
+    const results = [makeResult("pass"), makeResult("unverified"), makeResult("pass")];
     const findings = buildFindings(results);
     expect(findings).toHaveLength(0);
   });

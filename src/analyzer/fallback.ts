@@ -28,17 +28,38 @@ const PRIVILEGE_ESCALATION_FIELDS = {
 } as const;
 
 function withoutAuthHeaders(
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  customAuthHeaders: string[] = []
 ): Record<string, string> {
+  const customHeaders = new Set(customAuthHeaders.map((header) => header.toLowerCase()));
   const result: Record<string, string> = {};
   for (const [k, v] of Object.entries(headers)) {
     const lower = k.toLowerCase();
-    if (lower === "authorization" || lower === "cookie" || lower === "x-auth-token" || lower === "x-api-key" || lower === "apikey" || lower === "api-key") {
+    if (lower === "authorization" || lower === "cookie" || lower === "x-auth-token" || lower === "x-api-key" || lower === "apikey" || lower === "api-key" || customHeaders.has(lower)) {
       continue;
     }
     result[k] = v;
   }
   return result;
+}
+
+function credentialHeaders(endpoint: Endpoint): string[] {
+  return [...new Set([
+    ...(endpoint.credentialHeaderNames ?? []),
+    ...(endpoint.auth.headerName ? [endpoint.auth.headerName] : []),
+  ])];
+}
+
+function hasAuthHeader(headers: Record<string, string>): boolean {
+  return Object.keys(headers).some((key) => {
+    const lower = key.toLowerCase();
+    return lower === "authorization"
+      || lower === "cookie"
+      || lower === "x-auth-token"
+      || lower === "x-api-key"
+      || lower === "apikey"
+      || lower === "api-key";
+  });
 }
 
 function mergeBody(base: unknown, extra: Record<string, unknown>): unknown {
@@ -62,7 +83,7 @@ export function synthesizeFallbackPayloads(
   vulnerabilities: Vulnerability[]
 ): AttackPayload[] {
   const { method, url, headers, body } = endpoint;
-  const hasAuth = endpoint.auth.type !== "none";
+  const hasAuth = endpoint.auth.type !== "none" || hasAuthHeader(headers);
   const payloads: AttackPayload[] = [];
 
   // 1. No-auth call: strip any auth headers, reuse original body.
@@ -73,8 +94,10 @@ export function synthesizeFallbackPayloads(
     vulnerability: "auth bypass",
     method,
     url,
-    headers: withoutAuthHeaders(headers),
+    headers: withoutAuthHeaders(headers, credentialHeaders(endpoint)),
     body,
+    omitAuth: true,
+    expectRejection: hasAuth,
   });
 
   // 2. Invalid-auth call: provide a clearly-bogus token. Some endpoints
@@ -86,10 +109,11 @@ export function synthesizeFallbackPayloads(
       method,
       url,
       headers: {
-        ...withoutAuthHeaders(headers),
+        ...withoutAuthHeaders(headers, credentialHeaders(endpoint)),
         Authorization: "Bearer invalid_fallback_probe_token",
       },
       body,
+      expectRejection: hasAuth,
     });
   }
 
@@ -148,6 +172,8 @@ export function synthesizeFallbackPayloads(
       url,
       headers,
       body: swapped === "GET" ? undefined : body,
+      omitAuth: true,
+      expectRejection: hasAuth,
     });
   }
 

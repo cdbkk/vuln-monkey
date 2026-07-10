@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Report } from "../types.js";
+import { redactValue } from "../security/redaction.js";
 import { generateReportFilename } from "./filename.js";
 
 export async function writeJSONReport(report: Report, outputDir: string): Promise<string> {
@@ -9,6 +10,6 @@ export async function writeJSONReport(report: Report, outputDir: string): Promis
   const filename = generateReportFilename(report.timestamp, "json");
   const filePath = join(outputDir, filename);
 
-  await writeFile(filePath, JSON.stringify(report, null, 2), "utf-8");
+  await writeFile(filePath, JSON.stringify(redactValue(report), null, 2), "utf-8");
   return filePath;
 }

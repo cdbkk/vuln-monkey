@@ -13,7 +13,7 @@
   <img src="https://cdn.jsdelivr.net/gh/cdbkk/vuln-monkey@4dc700a/assets/demo.svg" alt="vuln-monkey terminal demo" width="760">
 </p>
 
-vuln-monkey uses an LLM to analyze API endpoints, generate attack payloads, fire them, and classify the responses. It writes a terminal summary plus Markdown and JSON reports. **v0.2.0** hardens security and correctness around that pipeline.
+vuln-monkey uses an LLM to analyze API endpoints, generate attack payloads, fire them, and classify the responses. It writes a terminal summary plus Markdown and JSON reports. **v0.3.0** hardens security and correctness around that pipeline.
 
 ## Quickstart
 
@@ -31,7 +31,10 @@ Default model is `claude-cli` (your local Claude Code CLI). Reports land in `./r
 OpenAPI instead of curl:
 
 ```bash
-vuln-monkey --spec https://api.example.com/openapi.json --model openai --concurrency 10
+vuln-monkey --spec https://api.example.com/openapi.json \
+  -H "Authorization: Bearer $API_TOKEN" \
+  --credential-origin https://api.example.com \
+  --model openai --concurrency 10
 ```
 
 ## Providers
@@ -50,6 +53,8 @@ Select a backend with `--model` (default: `claude-cli`).
 vuln-monkey --model gemini-cli "curl https://api.example.com/users"
 vuln-monkey --model codex-cli "curl https://api.example.com/users"
 ```
+
+CLI prompts are sent over stdin from a fresh temporary directory. Claude receives an empty tool list, Gemini receives a deny-all tool policy, and Codex keeps `--full-auto` while all tool features are disabled inside a read-only, ephemeral sandbox.
 
 ### API backends
 
@@ -77,6 +82,7 @@ Both use the OpenAI-compatible client. If `OPENAI_BASE_URL` or `OPENAI_API_BASE`
 ```bash
 vuln-monkey --model ollama "curl https://api.example.com/users"
 OPENAI_BASE_URL=http://localhost:1234/v1 vuln-monkey --model local "curl https://api.example.com/users"
+OPENAI_MODEL=qwen3:8b vuln-monkey --model ollama "curl https://api.example.com/users"
 ```
 
 Valid `--model` values: `claude-cli`, `gemini-cli`, `codex-cli`, `claude`, `gemini`, `openai`, `ollama`, `local`.
@@ -89,24 +95,30 @@ Valid `--model` values: `claude-cli`, `gemini-cli`, `codex-cli`, `claude`, `gemi
 vuln-monkey "curl -X POST https://api.example.com/login -d '{\"user\":\"a\",\"password\":\"b\"}'"
 ```
 
-**OpenAPI / Swagger** — fetch a remote spec and fuzz every extracted endpoint:
+**OpenAPI / Swagger JSON** — fetch a remote JSON spec and fuzz every extracted endpoint:
 
 ```bash
-vuln-monkey --spec https://api.example.com/openapi.json
+vuln-monkey --spec https://api.example.com/openapi.json \
+  -H "Authorization: Bearer $API_TOKEN" \
+  --credential-origin https://api.example.com
 ```
 
-You must pass a curl string **or** `--spec <url>`.
+You must pass a curl string **or** `--spec <url>`, not both. Repeat `-H` to supply credentials or headers for OpenAPI operations and explicitly allow each recipient with `--credential-origin`; a spec cannot redirect those credentials to another server. Private and local addresses are blocked unless you explicitly pass `--allow-private`.
 
 ### CLI options
 
 | Option | Description | Default |
 |:-------|:------------|:--------|
 | `[curl]` | Curl command to fuzz | — |
-| `--spec <url>` | OpenAPI/Swagger spec URL | — |
+| `--spec <url>` | OpenAPI/Swagger JSON spec URL | — |
 | `--model <name>` | LLM backend (see above) | `claude-cli` |
 | `--output <dir>` | Report output directory | `./reports` |
-| `--concurrency <n>` | Parallel request workers | `5` |
+| `--concurrency <n>` | Parallel request workers, maximum 100 | `5` |
 | `--timeout <ms>` | Per-request timeout | `10000` |
+| `-H, --header <header>` | Header applied to every endpoint; repeatable | — |
+| `--credential-origin <origin>` | Origin allowed to receive `-H` credentials; repeatable | — |
+| `--allow-private` | Allow private/local spec and target addresses | off |
+| `--fail-on <severity>` | Exit nonzero for findings at or above a severity | `none` |
 | `--dry-run` | Generate payloads only; do not send requests | off |
 
 ```bash
@@ -119,8 +131,8 @@ vuln-monkey --model ollama --timeout 20000 --output ./out "curl -X POST https://
 1. **Parse** — curl or OpenAPI → endpoint list (method, URL, headers, body, auth).
 2. **Analyze** — LLM suggests potential vulnerability types for each endpoint.
 3. **Generate payloads** — LLM builds attack requests; if generation fails or returns nothing, a built-in fallback synthesizes common probes (e.g. auth-bypass / mass-assignment style variants).
-4. **Execute** — payloads are fired with configurable concurrency and timeout (`--dry-run` stops before this step).
-5. **Report** — non-pass results become findings, scored into a risk score / rating, then written out.
+4. **Execute** — same-origin payloads are fired with DNS pinning, configurable concurrency, and an end-to-end DNS + HTTP timeout (`--dry-run` stops before this step).
+5. **Report** — evidence-backed non-pass results become findings; blocked or failed requests are reported separately as unverified.
 
 ### Output
 
@@ -130,24 +142,31 @@ vuln-monkey --model ollama --timeout 20000 --output ./out "curl -X POST https://
 
 Risk rating is one of `Fail`, `Needs Attention`, or `Acceptable` (score 0–100).
 
+For CI, use `--fail-on high` (or `critical`, `medium`, or `low`). Incomplete scans with unverified payloads also exit nonzero.
+
 ## Security & safety
 
 This is a **security testing tool**. Only run it against systems you are authorized to test.
 
-v0.2.0 focuses on hardening, not new attack surface:
+v0.3.0 focuses on hardening, not new attack surface:
 
-- **SSRF protections** with DNS pinning on outbound request targets
-- **Secret redaction** in generated reports
-- **Response-size limits** so large bodies cannot blow up the process
-- **LLM-output validation** so malformed model responses do not drive arbitrary execution paths
+- **SSRF protections** with DNS pinning, global-address validation, and same-origin payload enforcement
+- **Explicit private-network opt-in** via `--allow-private`
+- **Secret redaction** before model calls and report writes
+- **Response-size limits** for targets, OpenAPI specs, and OpenAI-compatible providers
+- **LLM-output validation** plus explicit markers for no-auth probes
+- **Isolated coding-CLI execution** with stdin prompts and temporary working directories
 
 Also: report paths that resolve into sensitive system directories (`/etc`, `/proc`, …) are rejected; terminal output is sanitized for control characters.
 
 ## Limitations
 
 - Results are **LLM-driven** — suggestions and payloads vary by model and can miss issues or invent noise.
+- OpenAPI input is currently **JSON only**, not YAML.
+- Query-string API-key schemes need the credential already represented in the spec; `-H` supplies header/cookie credentials.
 - You need a working **CLI backend, API key, or local OpenAI-compatible server**.
 - Classifications and findings need **human triage** before you treat them as confirmed vulns.
+- Secret scrubbing covers common credential fields and patterns, but arbitrary business data may still be sensitive; protect generated reports.
 - Fallback payloads are generic; they are a safety net, not a full replacement for good model output.
 
 ## Requirements

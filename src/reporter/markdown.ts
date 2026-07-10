@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Report, Finding } from "../types.js";
+import { redactValue } from "../security/redaction.js";
 import { generateReportFilename } from "./filename.js";
 
 const SENSITIVE_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-auth-token"]);
@@ -89,20 +90,25 @@ ${escapeFence(finding.response.body)}
 export async function writeMarkdownReport(report: Report, outputDir: string): Promise<string> {
   await mkdir(outputDir, { recursive: true });
 
-  const filename = generateReportFilename(report.timestamp, "md");
+  const safeReport = redactValue(report) as Report;
+
+  const filename = generateReportFilename(safeReport.timestamp, "md");
   const filePath = join(outputDir, filename);
 
-  const durationSecs = (report.duration / 1000).toFixed(2);
-  const date = new Date(report.timestamp).toUTCString();
+  const durationSecs = (safeReport.duration / 1000).toFixed(2);
+  const date = new Date(safeReport.timestamp).toUTCString();
 
-  const findingsSection = report.findings.length > 0
-    ? report.findings.map(formatFinding).join("\n---\n\n")
+  const findingsSection = safeReport.findings.length > 0
+    ? safeReport.findings.map(formatFinding).join("\n---\n\n")
     : "_No findings._";
-  const failedEndpoints = "endpointsFailed" in report && typeof report.endpointsFailed === "number"
-    ? report.endpointsFailed
+  const failedEndpoints = "endpointsFailed" in safeReport && typeof safeReport.endpointsFailed === "number"
+    ? safeReport.endpointsFailed
     : 0;
   const failedEndpointsRow = failedEndpoints > 0
     ? `| Endpoints Failed | ${failedEndpoints} |\n`
+    : "";
+  const unverifiedPayloadsRow = safeReport.payloadsUnverified
+    ? `| Payloads Unverified | ${safeReport.payloadsUnverified} |\n`
     : "";
 
   const content = `# Vuln Monkey Report
@@ -111,12 +117,12 @@ export async function writeMarkdownReport(report: Report, outputDir: string): Pr
 
 | Field | Value |
 |-------|-------|
-| Target | ${escapeMarkdownText(report.target)} |
-| Model | ${report.model} |
+| Target | ${escapeMarkdownText(safeReport.target)} |
+| Model | ${safeReport.model} |
 | Date | ${date} |
 | Duration | ${durationSecs}s |
-| Risk Score | ${report.riskScore}/100 |
-| Risk Rating | ${report.riskRating} |
+| Risk Score | ${safeReport.riskScore}/100 |
+| Risk Rating | ${safeReport.riskRating} |
 
 ## Findings
 
@@ -126,9 +132,9 @@ ${findingsSection}
 
 | Metric | Value |
 |--------|-------|
-| Endpoints Scanned | ${report.endpointsScanned} |
-${failedEndpointsRow}| Payloads Fired | ${report.payloadsFired} |
-| Findings | ${report.findings.length} |
+| Endpoints Scanned | ${safeReport.endpointsScanned} |
+${failedEndpointsRow}| Payloads Fired | ${safeReport.payloadsFired} |
+${unverifiedPayloadsRow}| Findings | ${safeReport.findings.length} |
 `;
 
   await writeFile(filePath, content, "utf-8");

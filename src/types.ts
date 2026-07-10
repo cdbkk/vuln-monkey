@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const EndpointSchema = z.object({
-  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
+  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]),
   url: z.string().url(),
   headers: z.record(z.string(), z.string()).default({}),
   body: z.unknown().optional(),
@@ -11,6 +11,7 @@ export const EndpointSchema = z.object({
     value: z.string().optional(),
     headerName: z.string().optional(),
   }).default({ type: "none" }),
+  credentialHeaderNames: z.array(z.string()).optional(),
 });
 export type Endpoint = z.infer<typeof EndpointSchema>;
 
@@ -28,16 +29,19 @@ export type Vulnerability = z.infer<typeof VulnerabilitySchema>;
 export const AttackPayloadSchema = z.object({
   name: z.string(),
   vulnerability: z.string(),
-  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
+  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]),
   url: z.string(),
   headers: z.record(z.string(), z.string()).default({}),
   body: z.unknown().optional(),
+  omitAuth: z.boolean().optional(),
+  expectRejection: z.boolean().optional(),
 });
 export type AttackPayload = z.infer<typeof AttackPayloadSchema>;
 
 export const ResultClassificationSchema = z.enum([
   "pass",
   "suspicious",
+  "unverified",
   "error",
   "crash",
 ]);
@@ -73,6 +77,7 @@ export const ReportSchema = z.object({
   timestamp: z.string(),
   endpointsScanned: z.number(),
   payloadsFired: z.number(),
+  payloadsUnverified: z.number().optional(),
   findings: z.array(FindingSchema),
   riskScore: z.number().min(0).max(100),
   riskRating: z.enum(["Fail", "Needs Attention", "Acceptable"]),
@@ -88,4 +93,3 @@ export interface LLMProvider {
     vulnerabilities: Vulnerability[]
   ): Promise<AttackPayload[]>;
 }
-

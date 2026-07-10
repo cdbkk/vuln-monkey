@@ -1,5 +1,6 @@
 import { AttackPayloadSchema, VulnerabilitySchema } from "../types.js";
 import type { Endpoint, Vulnerability, AttackPayload } from "../types.js";
+import { redactUrl, redactValue } from "../security/redaction.js";
 
 const VULN_TYPES = [
   "IDOR",
@@ -35,15 +36,15 @@ function formatAuth(endpoint: Endpoint): string {
 
 export function buildAnalysisPrompt(endpoint: Endpoint): string {
   const auth = formatAuth(endpoint);
-  const headers = formatJson(endpoint.headers);
-  const body = formatJson(endpoint.body);
-  const bodySchema = formatJson(endpoint.bodySchema);
+  const headers = formatJson(redactValue(endpoint.headers, "headers"));
+  const body = formatJson(redactValue(endpoint.body));
+  const bodySchema = formatJson(redactValue(endpoint.bodySchema));
 
   return `You are a security expert analyzing an API endpoint for vulnerabilities.
 
 Endpoint:
   Method: ${endpoint.method}
-  URL: ${endpoint.url}
+  URL: ${redactUrl(endpoint.url)}
   Auth: ${auth}
   Headers: ${headers}
   Body: ${body}
@@ -81,11 +82,11 @@ export function buildPayloadPrompt(
 
 Endpoint:
   Method: ${endpoint.method}
-  URL: ${endpoint.url}
+  URL: ${redactUrl(endpoint.url)}
   Auth: ${formatAuth(endpoint)}
-  Headers: ${formatJson(endpoint.headers)}
-  Body: ${formatJson(endpoint.body)}
-  Body schema: ${formatJson(endpoint.bodySchema)}
+  Headers: ${formatJson(redactValue(endpoint.headers, "headers"))}
+  Body: ${formatJson(redactValue(endpoint.body))}
+  Body schema: ${formatJson(redactValue(endpoint.bodySchema))}
 
 Vulnerabilities found:
 ${vulnSummary}
@@ -99,6 +100,8 @@ Return ONLY a JSON array (no explanation) where each object has:
 - url: full URL including any manipulated path/query params (string)
 - headers: object of HTTP headers (object)
 - body: request body (any type, omit if not needed)
+- omitAuth: true only when intentionally testing without the endpoint credentials (optional boolean)
+- expectRejection: true when a secure endpoint should reject this payload, such as missing or invalid credentials (optional boolean)
 
 Example format:
 \`\`\`json
@@ -133,6 +136,8 @@ function extractJsonArray(raw: string): unknown[] {
 
 const VALID_SEVERITIES = new Set(["critical", "high", "medium", "low"]);
 const ASCII_CONTROL_CHARS = /[\x00-\x1F]/g;
+const MAX_VULNERABILITIES = 5;
+const MAX_PAYLOADS = 50;
 
 function cleanString(value: unknown): string {
   return String(value ?? "").replace(ASCII_CONTROL_CHARS, "");
@@ -154,7 +159,7 @@ export function parseVulnerabilities(
   raw: string,
   endpoint: string
 ): Vulnerability[] {
-  const items = extractJsonArray(raw);
+  const items = extractJsonArray(raw).slice(0, MAX_VULNERABILITIES);
   return items.flatMap((item) => {
     if (typeof item !== "object" || item === null || Array.isArray(item)) return [];
 
@@ -172,7 +177,7 @@ export function parseVulnerabilities(
 }
 
 export function parsePayloads(raw: string): AttackPayload[] {
-  const items = extractJsonArray(raw);
+  const items = extractJsonArray(raw).slice(0, MAX_PAYLOADS);
 
   return items.flatMap((item) => {
     if (typeof item !== "object" || item === null || Array.isArray(item)) return [];
@@ -188,6 +193,8 @@ export function parsePayloads(raw: string): AttackPayload[] {
       url: cleanString(record["url"]),
       headers,
       body: record["body"] !== undefined ? record["body"] : undefined,
+      omitAuth: record["omitAuth"],
+      expectRejection: record["expectRejection"],
     });
     return parsed.success ? [parsed.data] : [];
   });
