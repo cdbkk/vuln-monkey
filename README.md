@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/cdbkk/vuln-monkey@804bd6b/assets/banner.svg" alt="vuln-monkey — AI-powered API security fuzzer" width="100%">
+  <img src="https://cdn.jsdelivr.net/gh/cdbkk/vuln-monkey@5b24712/assets/banner.svg" alt="vuln-monkey — AI-powered API security fuzzer" width="100%">
 </p>
 
 <p align="center">
