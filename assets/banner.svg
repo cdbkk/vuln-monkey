@@ -1,31 +1,110 @@
-<svg width="1200" height="300" viewBox="0 0 1200 300" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="vuln-monkey — AI-powered API security fuzzer">
+<svg width="1200" height="300" viewBox="0 0 1200 300" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">vuln·monkey</title>
+  <desc id="desc">AI-powered API security fuzzer with SSRF-safe, LLM-driven, OpenAPI and curl capabilities.</desc>
+
   <defs>
-    <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse">
-      <path d="M42 0H0V42" fill="none" stroke="#2ea043" stroke-width="1" opacity=".13"/>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" stroke="#2ea043" stroke-width="1" opacity=".12"/>
+      <circle cx="1" cy="1" r="1" fill="#3fdc5c" opacity=".26"/>
     </pattern>
-    <linearGradient id="fade" x1="1" y1="0" x2="0" y2="0">
-      <stop offset="0" stop-color="#0d1117" stop-opacity="0"/>
-      <stop offset=".82" stop-color="#0d1117" stop-opacity="1"/>
+    <linearGradient id="gridFade" x1="570" y1="150" x2="1200" y2="150" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0d1117"/>
+      <stop offset=".3" stop-color="#0d1117" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#0d1117" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="shieldFill" x1="900" y1="66" x2="1025" y2="244" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3fdc5c" stop-opacity=".14"/>
+      <stop offset="1" stop-color="#2ea043" stop-opacity=".025"/>
     </linearGradient>
     <style>
       .mono{font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace}
       .sans{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}
+      .line{stroke-linecap:round;stroke-linejoin:round}
     </style>
   </defs>
 
   <rect width="1200" height="300" fill="#0d1117"/>
-  <rect width="1200" height="300" fill="url(#grid)"/>
-  <rect width="1200" height="300" fill="url(#fade)"/>
+  <rect x="560" width="640" height="300" fill="url(#grid)"/>
+  <rect x="520" width="680" height="300" fill="url(#gridFade)"/>
+  <path d="M0 1H1200M0 299H1200" stroke="#30363d"/>
 
-  <text x="80" y="148" class="mono" font-size="64" font-weight="700" fill="#e6edf3">vuln<tspan fill="#3fdc5c">·monkey</tspan></text>
-  <text x="84" y="188" class="sans" font-size="23" fill="#8b949e">AI-powered API security fuzzer</text>
+  <!-- Command-line identity -->
+  <path d="M66 52V248M66 52h18M66 248h18" stroke="#2ea043" stroke-width="2" opacity=".8"/>
+  <g class="mono" font-size="13" letter-spacing="1.4">
+    <text x="84" y="66" fill="#3fdc5c">&gt;</text>
+    <text x="102" y="66" fill="#6e7681">FUZZ --TARGET API</text>
+  </g>
 
-  <g class="sans" font-size="14" font-weight="600" fill="#3fdc5c">
-    <rect x="84" y="216" width="120" height="34" rx="17" fill="#2ea043" fill-opacity=".14" stroke="#3fdc5c"/>
-    <text x="144" y="238" text-anchor="middle">SSRF-safe</text>
-    <rect x="214" y="216" width="126" height="34" rx="17" fill="#2ea043" fill-opacity=".14" stroke="#3fdc5c"/>
-    <text x="277" y="238" text-anchor="middle">LLM-driven</text>
-    <rect x="350" y="216" width="158" height="34" rx="17" fill="#2ea043" fill-opacity=".14" stroke="#3fdc5c"/>
-    <text x="429" y="238" text-anchor="middle">OpenAPI + curl</text>
+  <text x="82" y="139" class="mono" font-size="64" font-weight="700" letter-spacing="-3" fill="#e6edf3">vuln<tspan fill="#3fdc5c">·monkey</tspan></text>
+  <text x="84" y="180" class="sans" font-size="22" font-weight="500" letter-spacing=".2" fill="#9da7b3">AI-powered API security fuzzer</text>
+
+  <!-- Capabilities -->
+  <g class="mono" font-size="13" font-weight="600" fill="#c9f7d2">
+    <g>
+      <rect x="84" y="207" width="128" height="38" rx="19" fill="#2ea043" fill-opacity=".13" stroke="#2ea043"/>
+      <path class="line" d="M102 217l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10v-5l7-3Z" stroke="#3fdc5c" stroke-width="1.5"/>
+      <path class="line" d="m99 226 2 2 4-5" stroke="#3fdc5c" stroke-width="1.5"/>
+      <text x="118" y="231">SSRF-safe</text>
+    </g>
+    <g>
+      <rect x="222" y="207" width="136" height="38" rx="19" fill="#2ea043" fill-opacity=".13" stroke="#2ea043"/>
+      <path class="line" d="M241 217v4m0 10v4m-9-9h4m10 0h4m-9-6 2 4 4 2-4 2-2 4-2-4-4-2 4-2 2-4Z" stroke="#3fdc5c" stroke-width="1.4"/>
+      <text x="258" y="231">LLM-driven</text>
+    </g>
+    <g>
+      <rect x="368" y="207" width="166" height="38" rx="19" fill="#2ea043" fill-opacity=".13" stroke="#2ea043"/>
+      <path class="line" d="m388 219-6 7 6 7m7-14 6 7-6 7" stroke="#3fdc5c" stroke-width="1.6"/>
+      <text x="412" y="231">OpenAPI + curl</text>
+    </g>
+  </g>
+
+  <!-- Technical field -->
+  <g stroke="#2ea043" opacity=".45">
+    <path d="M760 78h54l15 15h37M760 222h54l15-15h37" stroke-dasharray="3 7"/>
+    <circle cx="760" cy="78" r="3" fill="#3fdc5c"/>
+    <circle cx="760" cy="222" r="3" fill="#3fdc5c"/>
+    <path d="M1080 91h54l12 12h29M1080 209h54l12-12h29" stroke-dasharray="3 7"/>
+    <circle cx="1175" cy="103" r="3" fill="#3fdc5c"/>
+    <circle cx="1175" cy="197" r="3" fill="#3fdc5c"/>
+  </g>
+
+  <g class="mono" font-size="10" letter-spacing="1" fill="#6e7681">
+    <text x="764" y="70">ATTACK_SURFACE</text>
+    <text x="764" y="239">PAYLOAD_QUEUE</text>
+    <text x="1092" y="82">POST /PROBE</text>
+    <text x="1099" y="225">403 BLOCKED</text>
+  </g>
+
+  <!-- Shield + terminal monkey mark -->
+  <g class="line">
+    <circle cx="960" cy="150" r="119" stroke="#2ea043" stroke-dasharray="2 12" opacity=".5"/>
+    <path d="M839 74V48h26M1081 74V48h-26M839 226v26h26M1081 226v26h-26" stroke="#3fdc5c" stroke-width="1.5" opacity=".65"/>
+
+    <path d="M960 48 1055 82v64c0 56-39 91-95 109-56-18-95-53-95-109V82l95-34Z" fill="url(#shieldFill)" stroke="#2ea043" stroke-width="2"/>
+    <path d="M960 62 1042 91v55c0 47-32 77-82 94-50-17-82-47-82-94V91l82-29Z" stroke="#3fdc5c" opacity=".22"/>
+
+    <path d="M960 91c-24-17-57-6-58 29-18-2-31 10-31 27 0 18 15 30 33 25 8 31 29 53 56 62 27-9 48-31 56-62 18 5 33-7 33-25 0-17-13-29-31-27-1-35-34-46-58-29Z" fill="#0d1117" stroke="#3fdc5c" stroke-width="2.5"/>
+    <circle cx="899" cy="147" r="12" stroke="#2ea043" stroke-width="2"/>
+    <circle cx="1021" cy="147" r="12" stroke="#2ea043" stroke-width="2"/>
+
+    <path d="M928 132c6-15 20-20 32-11 12-9 26-4 32 11" stroke="#2ea043" stroke-width="2"/>
+    <path d="m923 134 13 10-13 10M982 150h17" stroke="#3fdc5c" stroke-width="3"/>
+
+    <path d="M960 150c-17-13-31-4-31 14v14c0 20 13 34 31 40 18-6 31-20 31-40v-14c0-18-14-27-31-14Z" fill="#2ea043" fill-opacity=".13" stroke="#2ea043" stroke-width="2"/>
+    <circle cx="960" cy="172" r="4" fill="#3fdc5c" stroke="none"/>
+    <path d="M960 176v11M949 198h22" stroke="#3fdc5c" stroke-width="2"/>
+
+    <path d="M960 39v9M1055 146h12M853 146h12M960 255v9" stroke="#3fdc5c" stroke-width="2"/>
+    <circle cx="960" cy="35" r="3" fill="#3fdc5c" stroke="none"/>
+    <circle cx="1071" cy="146" r="3" fill="#3fdc5c" stroke="none"/>
+    <circle cx="849" cy="146" r="3" fill="#3fdc5c" stroke="none"/>
+    <circle cx="960" cy="268" r="3" fill="#3fdc5c" stroke="none"/>
+  </g>
+
+  <g class="mono" font-size="9" letter-spacing="1" fill="#3fdc5c" opacity=".7">
+    <text x="948" y="22">:443</text>
+    <text x="1101" y="150">HTTP</text>
+    <text x="806" y="150">{ }</text>
+    <text x="944" y="285">SAFE</text>
   </g>
 </svg>
